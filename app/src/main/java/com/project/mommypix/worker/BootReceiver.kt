@@ -18,9 +18,12 @@ class BootReceiver : BroadcastReceiver() {
 
         if (action == Intent.ACTION_BOOT_COMPLETED ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
-            action == "android.intent.action.QUICKBOOT_POWERON"
+            action == "android.intent.action.QUICKBOOT_POWERON" ||
+            action == "com.htc.intent.action.QUICKBOOT_POWERON"
         ) {
             val app = context.applicationContext as? MommyPixApp ?: return
+
+            val pendingResult = goAsync()
 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
@@ -32,9 +35,17 @@ class BootReceiver : BroadcastReceiver() {
                             prefs.effectiveIntervalMinutes,
                             prefs.isWifiOnly
                         )
+                        // Pre-download wallpapers in background on boot
+                        app.repository.replenishPrefetchPool()
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to restore wallpaper alarm on boot", e)
+                } finally {
+                    try {
+                        pendingResult.finish()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error finishing pendingResult in BootReceiver", e)
+                    }
                 }
             }
         }

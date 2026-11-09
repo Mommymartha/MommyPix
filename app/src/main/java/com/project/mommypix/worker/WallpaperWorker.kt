@@ -33,27 +33,8 @@ class WallpaperWorker(
                 return Result.success()
             }
 
-            when (userPrefs.wallpaperTarget) {
-                WallpaperTarget.HOME -> {
-                    val post = repository.fetchRandomPost(forceRefresh = true).getOrThrow()
-                    repository.applyPostAsWallpaper(post, WallpaperTarget.HOME).getOrThrow()
-                }
-                WallpaperTarget.LOCK -> {
-                    val post = repository.fetchRandomPost(forceRefresh = true).getOrThrow()
-                    repository.applyPostAsWallpaper(post, WallpaperTarget.LOCK).getOrThrow()
-                }
-                WallpaperTarget.BOTH -> {
-                    if (userPrefs.bothScreenMode == BothScreenMode.SAME_IMAGE) {
-                        val post = repository.fetchRandomPost(forceRefresh = true).getOrThrow()
-                        repository.applyPostAsWallpaper(post, WallpaperTarget.BOTH).getOrThrow()
-                    } else {
-                        // Different images for Home and Lock screens
-                        val homePost = repository.fetchRandomPost(forceRefresh = true).getOrThrow()
-                        val lockPost = repository.fetchRandomPost(forceRefresh = true).getOrThrow()
-                        repository.applyDualDifferentWallpapers(homePost, lockPost).getOrThrow()
-                    }
-                }
-            }
+            Log.i(TAG, "Executing periodic worker update for target: ${userPrefs.wallpaperTarget} (mode: ${userPrefs.bothScreenMode})")
+            repository.applyNextAutoWallpaper(userPrefs.wallpaperTarget, userPrefs.bothScreenMode).getOrThrow()
 
             prefsRepository.setLastAutoUpdateTimestamp(System.currentTimeMillis())
             NotificationHelper.showWallpaperChangedNotification(applicationContext, userPrefs.wallpaperTarget)

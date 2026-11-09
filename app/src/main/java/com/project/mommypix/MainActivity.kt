@@ -27,6 +27,9 @@ import com.project.mommypix.ui.screens.preview.PreviewScreen
 import com.project.mommypix.ui.screens.preview.PreviewViewModel
 import com.project.mommypix.ui.screens.settings.SettingsScreen
 import com.project.mommypix.ui.screens.settings.SettingsViewModel
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.project.mommypix.ui.theme.MommyPixTheme
 
 class MainActivity : ComponentActivity() {
@@ -36,6 +39,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val app = application as MommyPixApp
+        lifecycleScope.launch(Dispatchers.IO) {
+            app.repository.replenishPrefetchPool()
+        }
 
         setContent {
             val userPrefs by app.preferencesRepository.userPreferencesFlow

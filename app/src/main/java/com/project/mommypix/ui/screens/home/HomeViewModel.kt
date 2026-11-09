@@ -9,6 +9,7 @@ import com.project.mommypix.data.preferences.RatingFilter
 import com.project.mommypix.data.preferences.UserPreferences
 import com.project.mommypix.data.preferences.WallpaperTarget
 import com.project.mommypix.domain.model.Post
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -86,17 +87,21 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             if (prefs.wallpaperTarget == WallpaperTarget.BOTH && prefs.bothScreenMode == BothScreenMode.DIFFERENT_IMAGES) {
                 // Load two independent images
                 val res1 = repository.fetchRandomPost(forceRefresh = true)
-                val res2 = repository.fetchRandomPost(forceRefresh = true)
+                val res2 = repository.fetchRandomPost(forceRefresh = false)
 
-                if (res1.isSuccess && res2.isSuccess) {
+                if (res1.isSuccess || res2.isSuccess) {
+                    val p1 = res1.getOrNull() ?: res2.getOrNull()
+                    val p2 = res2.getOrNull() ?: res1.getOrNull()
                     _uiState.update {
                         it.copy(
                             isLoading = false,
-                            homePost = res1.getOrNull(),
-                            lockPost = res2.getOrNull(),
-                            currentPost = res1.getOrNull()
+                            homePost = p1,
+                            lockPost = p2,
+                            currentPost = p1,
+                            errorMessage = null
                         )
                     }
+                    viewModelScope.launch(Dispatchers.IO) { repository.replenishPrefetchPool() }
                 } else {
                     val err = res1.exceptionOrNull()?.localizedMessage
                         ?: res2.exceptionOrNull()?.localizedMessage
@@ -115,6 +120,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                                 lockPost = post
                             )
                         }
+                        viewModelScope.launch(Dispatchers.IO) { repository.replenishPrefetchPool() }
                     },
                     onFailure = { err ->
                         _uiState.update {

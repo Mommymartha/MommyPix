@@ -51,6 +51,7 @@ class MommyPixApp : Application(), ImageLoaderFactory {
         wallpaperManagerHelper = WallpaperManagerHelper(this)
 
         repository = WallpaperRepository(
+            context = this,
             api = ApiClient.rule34Api,
             credentialStorage = credentialStorage,
             database = database,
@@ -74,6 +75,8 @@ class MommyPixApp : Application(), ImageLoaderFactory {
                         prefs.isWifiOnly
                     )
                 }
+                // Pre-download initial batch so wallpaper changes are instant even if killed from recent tabs
+                repository.replenishPrefetchPool()
             } catch (e: Exception) {
                 Log.e("MommyPixApp", "Failed to check auto wallpaper schedule on app start", e)
             }

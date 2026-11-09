@@ -2,10 +2,12 @@ package com.project.mommypix.ui.screens.settings
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.os.PowerManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.project.mommypix.MommyPixApp
+import com.project.mommypix.admin.DeviceAdminManager
 import com.project.mommypix.data.preferences.AppTheme
 import com.project.mommypix.data.preferences.BothScreenMode
 import com.project.mommypix.data.preferences.DownloadQuality
@@ -34,6 +36,7 @@ data class SettingsUiState(
     val hasCredentials: Boolean = false,
     val isTestingConnection: Boolean = false,
     val isIgnoringBatteryOptimizations: Boolean = false,
+    val isDeviceAdminActive: Boolean = false,
     val userPreferences: UserPreferences = UserPreferences(),
     val storageUsageBytes: Long = 0L,
     val nextScheduledUpdateText: String = "",
@@ -49,6 +52,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val credentialStorage = app.credentialStorage
     private val prefsRepository = app.preferencesRepository
     private val repository = app.repository
+    private val deviceAdminManager = DeviceAdminManager(app)
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -58,6 +62,25 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         observePreferences()
         updateStorageAndCacheInfo()
         checkBatteryOptimizationStatus()
+        checkDeviceAdminStatus()
+    }
+
+    fun checkDeviceAdminStatus() {
+        val active = deviceAdminManager.isDeviceAdminActive
+        _uiState.update { it.copy(isDeviceAdminActive = active) }
+    }
+
+    fun getEnableDeviceAdminIntent(): Intent = deviceAdminManager.createEnableAdminIntent()
+    fun getSecuritySettingsFallbackIntent(): Intent = deviceAdminManager.createSecuritySettingsFallbackIntent()
+
+    fun deactivateDeviceAdmin() {
+        val success = deviceAdminManager.deactivateAdmin()
+        checkDeviceAdminStatus()
+        _uiState.update {
+            it.copy(
+                userMessage = if (success) "Uninstall protection deactivated." else "Uninstall protection is not active."
+            )
+        }
     }
 
     fun checkBatteryOptimizationStatus() {
@@ -81,14 +104,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun toggleSource(sourceId: String, isEnabled: Boolean) {
         viewModelScope.launch {
             prefsRepository.toggleSource(sourceId, isEnabled)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
         }
     }
 
     fun toggleUseCustomRule34Credentials(useCustom: Boolean) {
         viewModelScope.launch {
             prefsRepository.setUseCustomRule34Credentials(useCustom)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update {
                 it.copy(
                     userMessage = if (useCustom) "Switched to private API key mode" else "Using default public key (Zero-effort)"
@@ -201,7 +224,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun toggleBooruEnabled(enabled: Boolean) {
         viewModelScope.launch {
             prefsRepository.setBooruEnabled(enabled)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update {
                 it.copy(
                     userMessage = if (enabled) "Imageboard / Sites rotation enabled" else "Imageboard / Sites rotation disabled"
@@ -213,7 +236,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun toggleRedditEnabled(enabled: Boolean) {
         viewModelScope.launch {
             prefsRepository.setRedditEnabled(enabled)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update {
                 it.copy(
                     userMessage = if (enabled) "Subreddit wallpapers enabled" else "Subreddit wallpapers disabled"
@@ -225,7 +248,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun toggleSubreddit(subreddit: String, isChecked: Boolean) {
         viewModelScope.launch {
             prefsRepository.toggleSubreddit(subreddit, isChecked)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
         }
     }
 
@@ -238,7 +261,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         if (clean.isBlank()) return
         viewModelScope.launch {
             prefsRepository.addCustomSubreddit(clean)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update {
                 it.copy(
                     customSubredditInput = "",
@@ -251,7 +274,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun removeCustomSubreddit(subreddit: String) {
         viewModelScope.launch {
             prefsRepository.removeCustomSubreddit(subreddit)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update {
                 it.copy(userMessage = "Removed r/$subreddit")
             }
@@ -261,7 +284,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun enableAllSubreddits() {
         viewModelScope.launch {
             prefsRepository.setEnabledSubreddits(SubredditPacks.ALL_SUBREDDITS.toSet())
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update { it.copy(userMessage = "All curated subreddits enabled") }
         }
     }
@@ -269,7 +292,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun resetSubredditsToDefault() {
         viewModelScope.launch {
             prefsRepository.setEnabledSubreddits(SubredditPacks.DEFAULT_ENABLED_SUBREDDITS)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update { it.copy(userMessage = "Subreddits reset to recommended set") }
         }
     }
@@ -289,7 +312,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         if (clean.isBlank()) return
         viewModelScope.launch {
             prefsRepository.addIncludedTag(clean)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update { it.copy(includedTagInput = "", userMessage = "Added #$clean to required tags") }
         }
     }
@@ -297,7 +320,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun removeIncludedTag(tag: String) {
         viewModelScope.launch {
             prefsRepository.removeIncludedTag(tag)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update { it.copy(userMessage = "Removed #$tag from required tags") }
         }
     }
@@ -307,7 +330,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         if (clean.isBlank()) return
         viewModelScope.launch {
             prefsRepository.addBlockedTag(clean)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update { it.copy(blockedTagInput = "", userMessage = "Blocked #$clean — will not be downloaded") }
         }
     }
@@ -315,7 +338,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun removeBlockedTag(tag: String) {
         viewModelScope.launch {
             prefsRepository.removeBlockedTag(tag)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update { it.copy(userMessage = "Unblocked #$tag") }
         }
     }
@@ -323,7 +346,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun clearAllTagFilters() {
         viewModelScope.launch {
             prefsRepository.clearAllTagFilters()
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update { it.copy(userMessage = "All tag filters cleared (Full Random)") }
         }
     }
@@ -419,7 +442,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setRatingFilter(filter: RatingFilter) {
         viewModelScope.launch {
             prefsRepository.setRatingFilter(filter)
-            repository.clearBuffer()
+            repository.clearPrefetchPoolAndReplenish()
             _uiState.update { it.copy(userMessage = "Content filter set to: ${filter.title}") }
         }
     }

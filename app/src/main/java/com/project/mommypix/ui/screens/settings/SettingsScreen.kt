@@ -116,6 +116,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.checkBatteryOptimizationStatus()
+                viewModel.checkDeviceAdminStatus()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -1287,6 +1288,120 @@ fun SettingsScreen(
                             shape = RoundedCornerShape(10.dp)
                         ) {
                             Text("Disable Battery Optimization (Prevent OS Killing)")
+                        }
+                    }
+                }
+            }
+
+            // Section 3.6: Uninstall Protection (Optional Device Admin)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Security,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Column {
+                            Text(
+                                text = "Uninstall Protection (Device Admin)",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Optional protection against accidental or impulsive deletion",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Activating Device Administrator locks MommyPix against easy uninstallation via your home screen launcher or App Info. The app functions 100% normally whether enabled or not. You can safely deactivate this protection anytime right here.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (state.isDeviceAdminActive) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "Protection is ACTIVE 🔒",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Text(
+                                        text = "Uninstall button is blocked by Android Device Admin policy.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = { viewModel.deactivateDeviceAdmin() },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Text("Deactivate Uninstall Protection")
+                        }
+                    } else {
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = viewModel.getEnableDeviceAdminIntent()
+                                    val activity = context as? android.app.Activity
+                                    if (activity != null) {
+                                        activity.startActivity(intent)
+                                    } else {
+                                        context.startActivity(intent)
+                                    }
+                                } catch (e: Exception) {
+                                    try {
+                                        context.startActivity(viewModel.getSecuritySettingsFallbackIntent())
+                                    } catch (e2: Exception) {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Could not open Device Admin activation: ${e.localizedMessage}",
+                                            android.widget.Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Enable Uninstall Protection (Device Admin)")
                         }
                     }
                 }

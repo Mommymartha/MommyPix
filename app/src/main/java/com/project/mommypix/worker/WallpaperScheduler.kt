@@ -110,36 +110,46 @@ object WallpaperScheduler {
         val triggerAtMillis = System.currentTimeMillis() + (intervalMinutes * 60 * 1000L)
 
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (alarmManager.canScheduleExactAlarms()) {
+            // 1. Try setAlarmClock: Highest priority alarm on Android.
+            // Bypasses Doze mode throttling and background process restrictions even when
+            // the app is swiped away from recent tabs or screen is off.
+            val clockInfo = AlarmManager.AlarmClockInfo(triggerAtMillis, pendingIntent)
+            alarmManager.setAlarmClock(clockInfo, pendingIntent)
+            Log.i(TAG, "High-priority AlarmClock armed for ${Date(triggerAtMillis)}")
+        } catch (e: Exception) {
+            Log.w(TAG, "setAlarmClock not available, falling back to setExactAndAllowWhileIdle", e)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (alarmManager.canScheduleExactAlarms()) {
+                        alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    } else {
+                        alarmManager.setAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     alarmManager.setExactAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
                         triggerAtMillis,
                         pendingIntent
                     )
                 } else {
-                    alarmManager.setAndAllowWhileIdle(
+                    alarmManager.setExact(
                         AlarmManager.RTC_WAKEUP,
                         triggerAtMillis,
                         pendingIntent
                     )
                 }
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent
-                )
-            } else {
-                alarmManager.setExact(
-                    AlarmManager.RTC_WAKEUP,
-                    triggerAtMillis,
-                    pendingIntent
-                )
+                Log.i(TAG, "Alarm successfully armed for ${Date(triggerAtMillis)}")
+            } catch (e2: Exception) {
+                Log.e(TAG, "Failed to schedule exact alarm", e2)
             }
-            Log.i(TAG, "Alarm successfully armed for ${Date(triggerAtMillis)}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to schedule exact alarm", e)
         }
     }
 

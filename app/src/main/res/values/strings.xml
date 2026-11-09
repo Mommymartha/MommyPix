@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">MommyPix</string>
+    <string name="device_admin_description">Prevents accidental or impulsive uninstallation of MommyPix.</string>
 </resources>

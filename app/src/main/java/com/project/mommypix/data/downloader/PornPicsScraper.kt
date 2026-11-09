@@ -45,17 +45,17 @@ class PornPicsScraper(
             POPULAR_DISCOVERY_CATEGORIES.random()
         }
 
-        val randomOffset = Random.nextInt(0, 15) * 20
-        val randomPage = Random.nextInt(1, 10)
+        val randomPage = Random.nextInt(1, 8)
 
         // Multiple dynamic candidate endpoints so every request gets a unique page
         val candidateUrls = listOf(
-            "https://www.pornpics.com/search/recent/?q=$targetKeyword",
-            "https://www.pornpics.com/search/?q=$targetKeyword&p=$randomPage",
-            "https://www.pornpics.com/channels/$targetKeyword/",
             "https://www.pornpics.com/tags/$targetKeyword/",
-            "https://www.pornpics.com/$targetKeyword/recent/?limit=50&offset=$randomOffset",
-            "https://www.pornpics.com/recent/?limit=50&offset=$randomOffset"
+            "https://www.pornpics.com/tags/$targetKeyword/?p=$randomPage",
+            "https://www.pornpics.com/search/srch.php?q=$targetKeyword",
+            "https://www.pornpics.com/search/srch.php?q=$targetKeyword&p=$randomPage",
+            "https://www.pornpics.com/categories/$targetKeyword/",
+            "https://www.pornpics.com/recent/",
+            "https://www.pornpics.com/recent/?p=$randomPage"
         ).shuffled()
 
         var html = ""
@@ -66,7 +66,7 @@ class PornPicsScraper(
             }
         }
 
-        if (html.isBlank()) {
+        if (html.isBlank() || !html.contains("thumbwook")) {
             // Fallback to recent page
             html = fetchHtml("https://www.pornpics.com/recent/")
         }
@@ -188,41 +188,42 @@ class PornPicsScraper(
     ): List<Post> = withContext(Dispatchers.IO) {
         val activeSubs = subreddits.filter { it.isNotBlank() }
             .ifEmpty { com.project.mommypix.data.reddit.SubredditPacks.DEFAULT_ENABLED_SUBREDDITS.toList() }
+            .shuffled()
 
-        val chosenSub = activeSubs.random()
-        val mappedKeyword = com.project.mommypix.data.reddit.SubredditPacks.mapSubredditToSearchTerm(chosenSub)
         val blockedLower = blockedTags.map { it.lowercase().replace(' ', '-') }.toSet()
 
-        val randomOffset = Random.nextInt(0, 8) * 20
-        val randomPage = Random.nextInt(1, 6)
+        // Try candidate subreddits in randomized order until one returns valid wallpapers
+        for (sub in activeSubs) {
+            val mappedKeyword = com.project.mommypix.data.reddit.SubredditPacks.mapSubredditToSearchTerm(sub)
+            val randomPage = Random.nextInt(1, 5)
 
-        val candidateUrls = listOf(
-            "https://www.pornpics.com/tags/$mappedKeyword/",
-            "https://www.pornpics.com/search/recent/?q=$mappedKeyword",
-            "https://www.pornpics.com/search/?q=$mappedKeyword&p=$randomPage",
-            "https://www.pornpics.com/channels/$mappedKeyword/",
-            "https://www.pornpics.com/$mappedKeyword/recent/?limit=50&offset=$randomOffset"
-        ).shuffled()
+            val candidateUrls = listOf(
+                "https://www.pornpics.com/tags/$mappedKeyword/",
+                "https://www.pornpics.com/tags/$mappedKeyword/?p=$randomPage",
+                "https://www.pornpics.com/search/srch.php?q=$mappedKeyword",
+                "https://www.pornpics.com/search/srch.php?q=$mappedKeyword&p=$randomPage",
+                "https://www.pornpics.com/categories/$mappedKeyword/"
+            )
 
-        var html = ""
-        for (url in candidateUrls) {
-            html = fetchHtml(url)
-            if (html.isNotBlank() && html.contains("thumbwook")) {
-                break
+            for (url in candidateUrls) {
+                val html = fetchHtml(url)
+                if (html.isNotBlank() && html.contains("thumbwook")) {
+                    val parsed = parseHtml(html, blockedLower, emptyList())
+                    if (parsed.isNotEmpty()) {
+                        return@withContext parsed.map { post ->
+                            post.copy(
+                                sourceName = "r/$sub (Real-Life)",
+                                tags = listOf("r/$sub", mappedKeyword) + post.tags
+                            )
+                        }
+                    }
+                }
             }
         }
 
-        if (html.isBlank()) {
-            return@withContext emptyList()
-        }
-
-        val parsed = parseHtml(html, blockedLower, emptyList())
-        parsed.map { post ->
-            post.copy(
-                sourceName = "r/$chosenSub (Real-Life)",
-                tags = listOf("r/$chosenSub", mappedKeyword) + post.tags
-            )
-        }
+        // Final resilient fallback: grab trending/recent real-life photography wallpapers
+        Log.i(TAG, "Subreddit-specific tags returned 0; using discovery fallback")
+        fetchRandomPosts(emptySet(), blockedTags)
     }
 
     companion object {

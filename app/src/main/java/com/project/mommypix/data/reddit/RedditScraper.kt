@@ -81,7 +81,18 @@ class RedditScraper(
             }
         }
 
-        // 2. Secondary fallback: PullPush open Reddit search archive (Zero-auth, zero age-gate mirror)
+        // 2. Direct www.reddit.com JSON endpoint
+        val directUrl = "https://www.reddit.com/r/$subredditQuery/hot.json?limit=30&raw_json=1"
+        val directJson = fetchUrl(directUrl, isReddit = true)
+        if (directJson.isNotBlank()) {
+            val posts = parseRedditJson(directJson, subredditQuery, blockedLower, ratingFilter)
+            if (posts.isNotEmpty()) {
+                Log.d(TAG, "Successfully fetched ${posts.size} posts from reddit.com for r/$subredditQuery")
+                return posts
+            }
+        }
+
+        // 3. Secondary fallback: PullPush open Reddit search archive (Zero-auth, zero age-gate mirror)
         val pullpushUrl = "https://api.pullpush.io/reddit/search/submission/?subreddit=$subredditQuery&size=30"
         val pullpushJson = fetchUrl(pullpushUrl, isReddit = false)
         if (pullpushJson.isNotBlank()) {
