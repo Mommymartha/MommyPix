@@ -31,6 +31,9 @@ class UserPreferencesRepository(private val context: Context) {
         val LAST_AUTO_UPDATE_TIMESTAMP = longPreferencesKey("last_auto_update_timestamp")
         val INCLUDED_TAGS = stringSetPreferencesKey("included_tags")
         val BLOCKED_TAGS = stringSetPreferencesKey("blocked_tags")
+        val ENABLED_SOURCES = stringSetPreferencesKey("enabled_sources")
+        val USE_CUSTOM_RULE34_CREDS = booleanPreferencesKey("use_custom_rule34_creds")
+        val RATING_FILTER = stringPreferencesKey("rating_filter")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.dataStore.data
@@ -73,6 +76,13 @@ class UserPreferencesRepository(private val context: Context) {
             val incTags = preferences[PreferencesKeys.INCLUDED_TAGS] ?: emptySet()
             val blkTags = preferences[PreferencesKeys.BLOCKED_TAGS] ?: emptySet()
 
+            val sources = preferences[PreferencesKeys.ENABLED_SOURCES] ?: ImageSource.DEFAULT_ENABLED
+            val useCustomCreds = preferences[PreferencesKeys.USE_CUSTOM_RULE34_CREDS] ?: false
+
+            val ratingFilterStr = preferences[PreferencesKeys.RATING_FILTER]
+            val ratingFilter = ratingFilterStr?.let { runCatching { RatingFilter.valueOf(it) }.getOrNull() }
+                ?: RatingFilter.BOTH
+
             UserPreferences(
                 wallpaperTarget = target,
                 bothScreenMode = mode,
@@ -84,7 +94,10 @@ class UserPreferencesRepository(private val context: Context) {
                 appTheme = theme,
                 lastAutoUpdateTimestamp = lastUpdate,
                 includedTags = incTags,
-                blockedTags = blkTags
+                blockedTags = blkTags,
+                enabledSources = sources,
+                useCustomRule34Credentials = useCustomCreds,
+                ratingFilter = ratingFilter
             )
         }
 
@@ -178,6 +191,30 @@ class UserPreferencesRepository(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences.remove(PreferencesKeys.INCLUDED_TAGS)
             preferences.remove(PreferencesKeys.BLOCKED_TAGS)
+        }
+    }
+
+    suspend fun toggleSource(sourceId: String, isEnabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            val current = preferences[PreferencesKeys.ENABLED_SOURCES] ?: ImageSource.DEFAULT_ENABLED
+            val updated = if (isEnabled) {
+                current + sourceId
+            } else {
+                if (current.size > 1) current - sourceId else current
+            }
+            preferences[PreferencesKeys.ENABLED_SOURCES] = updated
+        }
+    }
+
+    suspend fun setUseCustomRule34Credentials(useCustom: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.USE_CUSTOM_RULE34_CREDS] = useCustom
+        }
+    }
+
+    suspend fun setRatingFilter(filter: RatingFilter) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.RATING_FILTER] = filter.name
         }
     }
 }

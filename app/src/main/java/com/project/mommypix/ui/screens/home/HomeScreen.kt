@@ -37,6 +37,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.project.mommypix.data.preferences.BothScreenMode
+import com.project.mommypix.data.preferences.RatingFilter
 import com.project.mommypix.data.preferences.WallpaperTarget
 import com.project.mommypix.domain.model.Post
 import com.project.mommypix.ui.components.AppTopBar
@@ -108,6 +110,40 @@ fun HomeScreen(
             // Missing Credentials Banner
             if (!state.hasCredentials) {
                 MissingCredentialsCard(onOpenSettings = onNavigateToSettings)
+            }
+
+            // Quick Content Rating Toggle (Both / Safe / NSFW)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RatingFilter.entries.forEach { filter ->
+                    val isSelected = state.userPreferences.ratingFilter == filter
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { viewModel.setRatingFilter(filter) }
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = when (filter) {
+                                    RatingFilter.BOTH -> "🎲 Both"
+                                    RatingFilter.SAFE_ONLY -> "🛡️ Safe"
+                                    RatingFilter.NSFW_ONLY -> "🔞 NSFW"
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
 
             // Dual Previews or Single Preview

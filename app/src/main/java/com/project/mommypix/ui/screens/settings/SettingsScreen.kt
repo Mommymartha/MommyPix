@@ -32,9 +32,11 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wallpaper
@@ -44,6 +46,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -88,6 +91,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.project.mommypix.data.preferences.AppTheme
 import com.project.mommypix.data.preferences.BothScreenMode
 import com.project.mommypix.data.preferences.DownloadQuality
+import com.project.mommypix.data.preferences.ImageSource
+import com.project.mommypix.data.preferences.RatingFilter
 import com.project.mommypix.data.preferences.UpdateInterval
 import com.project.mommypix.data.preferences.WallpaperTarget
 
@@ -152,7 +157,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Section 1: Rule34 API Authentication
+            // Section 1: Image Sources & Sites (Multi-Source Selection)
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
@@ -166,73 +171,181 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Text(
-                            text = "Rule34 API Credentials",
+                            text = "Wallpaper Sources & Sites",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                     }
 
                     Text(
-                        text = "Authentication is required to query the Rule34 API. Credentials are stored securely using Android Keystore encryption.",
+                        text = "Choose which wallpaper boards to include in your random rotation. Safebooru, Konachan, and Yande.re require 0 setup and work out-of-the-box!",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    OutlinedTextField(
-                        value = state.userIdInput,
-                        onValueChange = { viewModel.onUserIdChanged(it) },
-                        label = { Text("User ID") },
-                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    // List of sources with checkboxes
+                    ImageSource.entries.forEach { source ->
+                        val isChecked = state.userPreferences.enabledSources.contains(source.id)
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.toggleSource(source.id, !isChecked)
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = source.displayName,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                        if (source.isZeroAuth) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = MaterialTheme.colorScheme.primaryContainer
+                                            ) {
+                                                Text(
+                                                    text = "Zero Auth",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                    Text(
+                                        text = source.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
 
-                    OutlinedTextField(
-                        value = state.apiKeyInput,
-                        onValueChange = { viewModel.onApiKeyChanged(it) },
-                        label = { Text("API Key") },
-                        leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
-                        trailingIcon = {
-                            IconButton(onClick = { showApiKey = !showApiKey }) {
-                                Icon(
-                                    imageVector = if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = if (showApiKey) "Hide API Key" else "Show API Key"
+                                Checkbox(
+                                    checked = isChecked,
+                                    onCheckedChange = { checked ->
+                                        viewModel.toggleSource(source.id, checked)
+                                    }
                                 )
                             }
-                        },
-                        visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { viewModel.saveCredentials() },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Text("Save")
                         }
+                    }
 
-                        OutlinedButton(
-                            onClick = { viewModel.testApiConnection() },
-                            enabled = !state.isTestingConnection,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            if (state.isTestingConnection) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Testing...")
-                            } else {
-                                Text("Test Connection")
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Rule34 Public vs Private Key Toggle
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Custom / Private Rule34 Key",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                    )
+                                    Text(
+                                        text = if (state.userPreferences.useCustomRule34Credentials) {
+                                            "Using your private credentials entered below"
+                                        } else {
+                                            "Using built-in public key (Zero-effort out-of-the-box)"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = state.userPreferences.useCustomRule34Credentials,
+                                    onCheckedChange = { viewModel.toggleUseCustomRule34Credentials(it) }
+                                )
                             }
+
+                            if (state.userPreferences.useCustomRule34Credentials) {
+                                OutlinedTextField(
+                                    value = state.userIdInput,
+                                    onValueChange = { viewModel.onUserIdChanged(it) },
+                                    label = { Text("Private User ID") },
+                                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                OutlinedTextField(
+                                    value = state.apiKeyInput,
+                                    onValueChange = { viewModel.onApiKeyChanged(it) },
+                                    label = { Text("Private API Key") },
+                                    leadingIcon = { Icon(Icons.Default.Key, contentDescription = null) },
+                                    trailingIcon = {
+                                        IconButton(onClick = { showApiKey = !showApiKey }) {
+                                            Icon(
+                                                imageVector = if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                                contentDescription = if (showApiKey) "Hide API Key" else "Show API Key"
+                                            )
+                                        }
+                                    },
+                                    visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = { viewModel.saveCredentials() },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("Save Key")
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { viewModel.clearCredentials() },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(10.dp)
+                                    ) {
+                                        Text("Clear")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Test Sources Connection Button
+                    OutlinedButton(
+                        onClick = { viewModel.testApiConnection() },
+                        enabled = !state.isTestingConnection,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        if (state.isTestingConnection) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Testing Sources Connectivity...")
+                        } else {
+                            Text("Test Sources Connectivity")
                         }
                     }
 
@@ -253,6 +366,73 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (state.isConnectionSuccess == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
+                        }
+                    }
+                }
+            }
+
+            // Section 1.5: Content Rating Filter (Safe vs NSFW vs Both)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Text(
+                            text = "Content Rating (Safe vs NSFW)",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+
+                    Text(
+                        text = "Filter wallpapers by content rating. Toggle between clean all-ages art, mature/explicit art, or shuffle both randomly.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    RatingFilter.entries.forEach { filter ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (state.userPreferences.ratingFilter == filter) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.setRatingFilter(filter) }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = state.userPreferences.ratingFilter == filter,
+                                    onClick = { viewModel.setRatingFilter(filter) }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = filter.title,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Text(
+                                        text = filter.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }

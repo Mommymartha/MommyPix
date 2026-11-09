@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.project.mommypix.MommyPixApp
 import com.project.mommypix.data.preferences.BothScreenMode
+import com.project.mommypix.data.preferences.RatingFilter
 import com.project.mommypix.data.preferences.UserPreferences
 import com.project.mommypix.data.preferences.WallpaperTarget
 import com.project.mommypix.domain.model.Post
@@ -41,10 +42,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             prefsRepository.userPreferencesFlow.collectLatest { prefs ->
+                val needsCustom = prefs.enabledSources == setOf("rule34") &&
+                        prefs.useCustomRule34Credentials &&
+                        !repository.hasCustomCredentials()
+                val canFetch = !needsCustom
                 _uiState.update {
                     it.copy(
                         userPreferences = prefs,
-                        hasCredentials = repository.hasCredentials()
+                        hasCredentials = canFetch
                     )
                 }
             }
@@ -54,9 +59,21 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkCredentialsAndLoad() {
-        val hasCreds = repository.hasCredentials()
-        _uiState.update { it.copy(hasCredentials = hasCreds) }
-        if (hasCreds && _uiState.value.currentPost == null) {
+        val prefs = _uiState.value.userPreferences
+        val needsCustom = prefs.enabledSources == setOf("rule34") &&
+                prefs.useCustomRule34Credentials &&
+                !repository.hasCustomCredentials()
+        val canFetch = !needsCustom
+        _uiState.update { it.copy(hasCredentials = canFetch) }
+        if (canFetch && _uiState.value.currentPost == null) {
+            loadInitialImages()
+        }
+    }
+
+    fun setRatingFilter(filter: RatingFilter) {
+        viewModelScope.launch {
+            prefsRepository.setRatingFilter(filter)
+            repository.clearBuffer()
             loadInitialImages()
         }
     }

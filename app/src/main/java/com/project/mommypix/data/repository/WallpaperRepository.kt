@@ -2,11 +2,14 @@ package com.project.mommypix.data.repository
 
 import android.util.Log
 import com.project.mommypix.data.api.ApiClient
+import com.project.mommypix.data.api.PostDto
 import com.project.mommypix.data.api.Rule34Api
 import com.project.mommypix.data.downloader.ImageDownloader
 import com.project.mommypix.data.local.AppDatabase
 import com.project.mommypix.data.local.DownloadHistoryItem
 import com.project.mommypix.data.local.FavoriteEntity
+import com.project.mommypix.data.preferences.ImageSource
+import com.project.mommypix.data.preferences.RatingFilter
 import com.project.mommypix.data.preferences.UserPreferencesRepository
 import com.project.mommypix.data.preferences.WallpaperTarget
 import com.project.mommypix.domain.model.Post
@@ -18,6 +21,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import retrofit2.Response
 import java.io.File
 
 class WallpaperRepository(
@@ -35,7 +39,7 @@ class WallpaperRepository(
     // In-memory cache of active posts so clicking a preview immediately finds it
     private val recentPostsCache = LinkedHashMap<Long, Post>(100, 0.75f, true)
 
-    // Buffer of fetched valid posts to provide smooth "Next Image" transitions
+    // Buffer of fetched valid posts to provide smooth transitions
     private val postBuffer = ArrayDeque<Post>()
 
     fun getCachedPost(postId: Long): Post? = recentPostsCache[postId]
@@ -50,44 +54,53 @@ class WallpaperRepository(
     }
 
     /**
-     * Checks if credentials are provided.
+     * Checks if image fetching is possible.
+     * Always returns true because zero-auth open sources (Safebooru, Konachan, Yande.re)
+     * and default public Rule34 credentials are ready out-of-the-box.
      */
-    fun hasCredentials(): Boolean = credentialStorage.hasCredentials()
+    fun hasCredentials(): Boolean = true
+
+    fun hasCustomCredentials(): Boolean = credentialStorage.hasCustomCredentials()
 
     /**
-     * Tests API credentials and connectivity.
-     * Returns true if request succeeds, or throws an informative exception.
+     * Tests API connectivity.
      */
     suspend fun testApiConnection(): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val userId = credentialStorage.getUserId()
-            val apiKey = credentialStorage.getApiKey()
+            val userPrefs = preferencesRepository?.userPreferencesFlow?.first()
+            val useCustom = userPrefs?.useCustomRule34Credentials ?: false
+            val userId = credentialStorage.getEffectiveUserId(useCustom)
+            val apiKey = credentialStorage.getEffectiveApiKey(useCustom)
 
-            if (userId.isNullOrBlank() || apiKey.isNullOrBlank()) {
-                return@withContext Result.failure(
-                    IllegalStateException("API User ID and API Key must both be entered")
-                )
-            }
-
-            val response = api.getPosts(
+            // Test Rule34 access
+            val r34Response = api.getGelbooruPosts(
+                url = "https://api.rule34.xxx/index.php",
                 limit = 1,
                 tags = ContentFilter.buildSafeTagQuery("sort:random"),
                 apiKey = apiKey,
                 userId = userId
             )
 
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(
-                    Exception("Server responded with HTTP ${response.code()}: ${response.message()}")
-                )
-            }
+            // Test Open Source access (Safebooru)
+            val safebooruResponse = api.getGelbooruPosts(
+                url = "https://safebooru.org/index.php",
+                limit = 1,
+                tags = ContentFilter.buildSafeTagQuery("sort:random")
+            )
 
-            val body = response.body()
-            if (body == null) {
-                return@withContext Result.failure(Exception("Received empty response from server"))
-            }
+            val r34Ok = r34Response.isSuccessful
+            val safeOk = safebooruResponse.isSuccessful
 
-            Result.success("Connection successful! Authenticated with Rule34 API.")
+            if (r34Ok || safeOk) {
+                val details = buildString {
+                    append("Connection successful! ")
+                    if (r34Ok) append("Rule34 (Authenticated) OK. ")
+                    if (safeOk) append("Safebooru (Public) OK. ")
+                }
+                Result.success(details)
+            } else {
+                Result.failure(Exception("Could not connect to image sources: HTTP ${r34Response.code()}"))
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Test connection failed", e)
             Result.failure(e)
@@ -95,122 +108,211 @@ class WallpaperRepository(
     }
 
     /**
-     * Fetches a random valid post from Rule34.
+     * Fetches a random valid post across enabled sources.
      * Respects user's Included tags and Blocked tags (blacklist),
-     * and strictly rejects prohibited illegal content and unsupported video formats.
+     * and strictly rejects prohibited illegal content and unsupported formats.
      */
     suspend fun fetchRandomPost(forceRefresh: Boolean = false): Result<Post> = withContext(Dispatchers.IO) {
         try {
-            if (!hasCredentials()) {
-                return@withContext Result.failure(
-                    IllegalStateException("Rule34 API credentials not configured. Please enter them in Settings.")
-                )
-            }
-
             if (!forceRefresh && postBuffer.isNotEmpty()) {
                 val cached = postBuffer.removeFirst()
                 val isFav = database.isFavorite(cached.id)
                 return@withContext Result.success(cached.copy(isFavorite = isFav))
             }
 
-            val userId = credentialStorage.getUserId()
-            val apiKey = credentialStorage.getApiKey()
-
-            // Read user tag preferences
+            // Read user preferences
             val userPrefs = preferencesRepository?.userPreferencesFlow?.first()
             val includedTags = userPrefs?.includedTags.orEmpty()
             val blockedTags = userPrefs?.blockedTags.orEmpty()
+            val useCustomRule34 = userPrefs?.useCustomRule34Credentials ?: false
+            val ratingFilter = userPrefs?.ratingFilter ?: RatingFilter.BOTH
 
-            // Construct API search query with included and blocked tags
-            val queryParts = mutableListOf<String>()
-            queryParts.add("sort:random")
-
-            includedTags.forEach { tag ->
-                val clean = tag.trim().lowercase().replace(' ', '_')
-                if (clean.isNotBlank()) queryParts.add(clean)
-            }
-
-            blockedTags.forEach { tag ->
-                val clean = tag.trim().lowercase().replace(' ', '_')
-                if (clean.isNotBlank()) queryParts.add("-$clean")
-            }
-
-            val safeQuery = ContentFilter.buildSafeTagQuery(queryParts.joinToString(" "))
-
-            // Request a small batch (e.g. 10) to minimize network roundtrips and filter locally
-            val response = api.getPosts(
-                limit = 10,
-                tags = safeQuery,
-                apiKey = apiKey,
-                userId = userId
-            )
-
-            if (!response.isSuccessful) {
-                return@withContext Result.failure(
-                    Exception("Failed to fetch posts: HTTP ${response.code()} ${response.message()}")
-                )
-            }
-
-            val dtoList = response.body().orEmpty()
-            if (dtoList.isEmpty()) {
-                return@withContext Result.failure(
-                    Exception("No posts matched your tag filters. Try removing some included tags.")
-                )
-            }
+            val enabledSourceIds = userPrefs?.enabledSources ?: ImageSource.DEFAULT_ENABLED
+            val candidateSources = enabledSourceIds.mapNotNull { ImageSource.fromId(it) }
+                .ifEmpty { ImageSource.entries }
+                .shuffled()
 
             val blockedLower = blockedTags.map { it.lowercase().replace(' ', '_') }.toSet()
             val includedLower = includedTags.map { it.lowercase().replace(' ', '_') }.toSet()
 
-            val validPosts = dtoList.mapNotNull { it.toDomain() }
-                .filter { post ->
-                    val postTagsLower = post.tags.map { it.lowercase() }.toSet()
+            var lastError: Exception? = null
 
-                    // 1. Mandatory Legal Content Filter
-                    val isLegal = ContentFilter.isPostPermitted(post.tags.joinToString(" "))
+            // Iterate through randomized candidate sources until valid posts are retrieved
+            for (source in candidateSources) {
+                try {
+                    val dtoList = fetchFromSource(source, includedTags, blockedTags, useCustomRule34, ratingFilter)
+                    if (dtoList.isEmpty()) continue
 
-                    // 2. Only image formats, no video
-                    val isImage = post.isSupportedImage
+                    val validPosts = dtoList.mapNotNull { it.toDomain(source) }
+                        .filter { post ->
+                            val postTagsLower = post.tags.map { it.lowercase() }.toSet()
 
-                    // 3. User blacklist filter: Must NOT contain any blocked tag
-                    val containsBlocked = postTagsLower.any { blockedLower.contains(it) }
+                            // 1. Mandatory Legal Content Filter
+                            val isLegal = ContentFilter.isPostPermitted(post.tags.joinToString(" "))
 
-                    // 4. User whitelist filter: If user specified included tags, post should match
-                    val matchesIncluded = includedLower.isEmpty() || postTagsLower.any { includedLower.contains(it) }
+                            // 2. Only image formats, no video
+                            val isImage = post.isSupportedImage
 
-                    isLegal && isImage && !containsBlocked && matchesIncluded
+                            // 3. User blacklist filter: Must NOT contain any blocked tag
+                            val containsBlocked = postTagsLower.any { blockedLower.contains(it) }
+
+                            // 4. User whitelist filter: If user specified included tags, post should match
+                            val matchesIncluded = includedLower.isEmpty() || postTagsLower.any { includedLower.contains(it) }
+
+                            // 5. Rating filter: Safe vs NSFW vs Both
+                            val r = post.rating.lowercase()
+                            val matchesRating = when (ratingFilter) {
+                                RatingFilter.BOTH -> true
+                                RatingFilter.SAFE_ONLY -> r == "s" || r == "safe" || r == "general" || r == "g"
+                                RatingFilter.NSFW_ONLY -> r == "q" || r == "questionable" || r == "e" || r == "explicit"
+                            }
+
+                            isLegal && isImage && !containsBlocked && matchesIncluded && matchesRating
+                        }
+
+                    if (validPosts.isNotEmpty()) {
+                        for (p in validPosts) {
+                            recentPostsCache[p.id] = p
+                            if (!seenPostIds.contains(p.id)) {
+                                postBuffer.add(p)
+                            }
+                        }
+
+                        if (postBuffer.isEmpty()) {
+                            postBuffer.addAll(validPosts)
+                        }
+
+                        val chosen = postBuffer.removeFirst()
+                        recentPostsCache[chosen.id] = chosen
+                        seenPostIds.add(chosen.id)
+                        if (seenPostIds.size > 300) {
+                            seenPostIds.clear()
+                        }
+
+                        val isFav = database.isFavorite(chosen.id)
+                        return@withContext Result.success(chosen.copy(isFavorite = isFav))
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Source ${source.displayName} query failed, trying next source", e)
+                    lastError = e
                 }
-
-            if (validPosts.isEmpty()) {
-                return@withContext Result.failure(
-                    Exception("Fetched posts were filtered out by your blocked tags or contained unsupported formats. Shuffling again...")
-                )
             }
 
-            for (p in validPosts) {
-                recentPostsCache[p.id] = p
-                if (!seenPostIds.contains(p.id)) {
-                    postBuffer.add(p)
-                }
-            }
-
-            // If all were seen, re-add to buffer to avoid infinite starvation
-            if (postBuffer.isEmpty()) {
-                postBuffer.addAll(validPosts)
-            }
-
-            val chosen = postBuffer.removeFirst()
-            recentPostsCache[chosen.id] = chosen
-            seenPostIds.add(chosen.id)
-            if (seenPostIds.size > 200) {
-                seenPostIds.clear()
-            }
-
-            val isFav = database.isFavorite(chosen.id)
-            Result.success(chosen.copy(isFavorite = isFav))
+            // Fallback error if all sources failed
+            Result.failure(
+                lastError ?: Exception("No wallpapers found matching your filters across enabled sources.")
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching random post", e)
             Result.failure(e)
         }
+    }
+
+    private suspend fun fetchFromSource(
+        source: ImageSource,
+        includedTags: Set<String>,
+        blockedTags: Set<String>,
+        useCustomRule34: Boolean,
+        ratingFilter: RatingFilter
+    ): List<PostDto> {
+        val queryParts = mutableListOf<String>()
+
+        when (source) {
+            ImageSource.SAFEBOORU, ImageSource.RULE34, ImageSource.GELBOORU, ImageSource.TBIB -> {
+                queryParts.add("sort:random")
+                when (ratingFilter) {
+                    RatingFilter.SAFE_ONLY -> queryParts.add("rating:general")
+                    RatingFilter.NSFW_ONLY -> queryParts.add("-rating:general -rating:safe")
+                    RatingFilter.BOTH -> { /* no rating filter token */ }
+                }
+            }
+            ImageSource.KONACHAN, ImageSource.YANDE_RE -> {
+                queryParts.add("order:random")
+                when (ratingFilter) {
+                    RatingFilter.SAFE_ONLY -> queryParts.add("rating:s")
+                    RatingFilter.NSFW_ONLY -> queryParts.add("-rating:s")
+                    RatingFilter.BOTH -> { /* no rating filter token */ }
+                }
+            }
+            ImageSource.DANBOORU -> {
+                queryParts.add("order:random")
+                when (ratingFilter) {
+                    RatingFilter.SAFE_ONLY -> queryParts.add("rating:g")
+                    RatingFilter.NSFW_ONLY -> queryParts.add("-rating:g")
+                    RatingFilter.BOTH -> { /* no rating filter token */ }
+                }
+            }
+        }
+
+        includedTags.forEach { tag ->
+            val clean = tag.trim().lowercase().replace(' ', '_')
+            if (clean.isNotBlank()) queryParts.add(clean)
+        }
+
+        blockedTags.forEach { tag ->
+            val clean = tag.trim().lowercase().replace(' ', '_')
+            if (clean.isNotBlank()) queryParts.add("-$clean")
+        }
+
+        val safeQuery = ContentFilter.buildSafeTagQuery(queryParts.joinToString(" "))
+
+        val response: Response<List<PostDto>> = when (source) {
+            ImageSource.SAFEBOORU -> {
+                api.getGelbooruPosts(
+                    url = "https://safebooru.org/index.php",
+                    limit = 10,
+                    tags = safeQuery
+                )
+            }
+            ImageSource.GELBOORU -> {
+                api.getGelbooruPosts(
+                    url = "https://gelbooru.com/index.php",
+                    limit = 10,
+                    tags = safeQuery
+                )
+            }
+            ImageSource.TBIB -> {
+                api.getGelbooruPosts(
+                    url = "https://tbib.org/index.php",
+                    limit = 10,
+                    tags = safeQuery
+                )
+            }
+            ImageSource.KONACHAN -> {
+                api.getMoebooruPosts(
+                    url = "https://konachan.net/post.json",
+                    limit = 10,
+                    tags = safeQuery
+                )
+            }
+            ImageSource.YANDE_RE -> {
+                api.getMoebooruPosts(
+                    url = "https://yande.re/post.json",
+                    limit = 10,
+                    tags = safeQuery
+                )
+            }
+            ImageSource.DANBOORU -> {
+                api.getMoebooruPosts(
+                    url = "https://danbooru.donmai.us/posts.json",
+                    limit = 10,
+                    tags = safeQuery
+                )
+            }
+            ImageSource.RULE34 -> {
+                val userId = credentialStorage.getEffectiveUserId(useCustomRule34)
+                val apiKey = credentialStorage.getEffectiveApiKey(useCustomRule34)
+                api.getGelbooruPosts(
+                    url = "https://api.rule34.xxx/index.php",
+                    limit = 10,
+                    tags = safeQuery,
+                    apiKey = apiKey,
+                    userId = userId
+                )
+            }
+        }
+
+        return if (response.isSuccessful) response.body().orEmpty() else emptyList()
     }
 
     /**

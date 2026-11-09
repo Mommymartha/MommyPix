@@ -9,6 +9,7 @@ import com.project.mommypix.MommyPixApp
 import com.project.mommypix.data.preferences.AppTheme
 import com.project.mommypix.data.preferences.BothScreenMode
 import com.project.mommypix.data.preferences.DownloadQuality
+import com.project.mommypix.data.preferences.RatingFilter
 import com.project.mommypix.data.preferences.UpdateInterval
 import com.project.mommypix.data.preferences.UserPreferences
 import com.project.mommypix.data.preferences.WallpaperTarget
@@ -68,8 +69,27 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             it.copy(
                 userIdInput = uid,
                 apiKeyInput = key,
-                hasCredentials = credentialStorage.hasCredentials()
+                hasCredentials = credentialStorage.hasCustomCredentials()
             )
+        }
+    }
+
+    fun toggleSource(sourceId: String, isEnabled: Boolean) {
+        viewModelScope.launch {
+            prefsRepository.toggleSource(sourceId, isEnabled)
+            repository.clearBuffer()
+        }
+    }
+
+    fun toggleUseCustomRule34Credentials(useCustom: Boolean) {
+        viewModelScope.launch {
+            prefsRepository.setUseCustomRule34Credentials(useCustom)
+            repository.clearBuffer()
+            _uiState.update {
+                it.copy(
+                    userMessage = if (useCustom) "Switched to private API key mode" else "Using default public key (Zero-effort)"
+                )
+            }
         }
     }
 
@@ -263,6 +283,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setBothScreenMode(mode: BothScreenMode) {
         viewModelScope.launch {
             prefsRepository.setBothScreenMode(mode)
+        }
+    }
+
+    fun setRatingFilter(filter: RatingFilter) {
+        viewModelScope.launch {
+            prefsRepository.setRatingFilter(filter)
+            repository.clearBuffer()
+            _uiState.update { it.copy(userMessage = "Content filter set to: ${filter.title}") }
         }
     }
 

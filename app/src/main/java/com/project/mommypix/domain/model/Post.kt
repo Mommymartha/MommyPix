@@ -9,7 +9,8 @@ data class Post(
     val height: Int,
     val rating: String,
     val tags: List<String>,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val sourceName: String = "Rule34"
 ) {
     val dimensionsFormatted: String
         get() = "${width}x${height}"
@@ -37,4 +38,3 @@ data class Post(
             return cleanUrl.endsWith(".mp4") || cleanUrl.endsWith(".webm")
         }
 }
-

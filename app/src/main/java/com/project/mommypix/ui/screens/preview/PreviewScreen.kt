@@ -384,6 +384,14 @@ fun PreviewScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            Text("Source:", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(post.sourceName, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                             Text("Resolution:", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("${post.width} × ${post.height} pixels", fontWeight = FontWeight.SemiBold)
                         }

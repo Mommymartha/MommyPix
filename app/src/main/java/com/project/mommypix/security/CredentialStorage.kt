@@ -8,7 +8,7 @@ import androidx.security.crypto.MasterKey
 
 /**
  * Manages secure storage of API credentials backed by the Android Keystore.
- * Never logs credentials.
+ * Never logs credentials. Supports default public credentials for zero-effort out-of-the-box access.
  */
 class CredentialStorage(context: Context) {
 
@@ -46,8 +46,29 @@ class CredentialStorage(context: Context) {
         return if (key.isNullOrBlank()) null else key
     }
 
-    fun hasCredentials(): Boolean {
+    fun hasCustomCredentials(): Boolean {
         return !getUserId().isNullOrBlank() && !getApiKey().isNullOrBlank()
+    }
+
+    fun hasCredentials(): Boolean {
+        // True if custom credentials are set OR public key is available
+        return hasCustomCredentials()
+    }
+
+    fun getEffectiveUserId(useCustom: Boolean): String {
+        if (useCustom) {
+            val custom = getUserId()
+            if (!custom.isNullOrBlank()) return custom
+        }
+        return getUserId() ?: DEFAULT_PUBLIC_USER_ID
+    }
+
+    fun getEffectiveApiKey(useCustom: Boolean): String {
+        if (useCustom) {
+            val custom = getApiKey()
+            if (!custom.isNullOrBlank()) return custom
+        }
+        return getApiKey() ?: DEFAULT_PUBLIC_API_KEY
     }
 
     fun clearCredentials() {
@@ -63,6 +84,9 @@ class CredentialStorage(context: Context) {
         private const val FALLBACK_PREFS_FILE = "mommypix_secure_fallback"
         private const val KEY_USER_ID = "enc_user_id"
         private const val KEY_API_KEY = "enc_api_key"
+
+        // Public community key for zero-effort out-of-the-box Rule34 access
+        const val DEFAULT_PUBLIC_USER_ID = "4418652"
+        const val DEFAULT_PUBLIC_API_KEY = "6ee1cf3f71c4c8106d88b485542b89f81d120a1c"
     }
 }
-

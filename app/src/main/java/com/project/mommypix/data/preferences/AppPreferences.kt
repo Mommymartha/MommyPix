@@ -35,6 +35,67 @@ enum class AppTheme(val title: String) {
     DARK("Dark")
 }
 
+enum class RatingFilter(val id: String, val title: String, val description: String) {
+    BOTH("both", "Both (Safe + NSFW)", "Shuffle across all ratings at random"),
+    SAFE_ONLY("safe", "Safe Only (SFW)", "Only clean, general, and all-ages wallpapers"),
+    NSFW_ONLY("nsfw", "NSFW Only (Mature)", "Only adult, questionable, and explicit wallpapers")
+}
+
+enum class ImageSource(
+    val id: String,
+    val displayName: String,
+    val description: String,
+    val isZeroAuth: Boolean
+) {
+    SAFEBOORU(
+        id = "safebooru",
+        displayName = "Safebooru",
+        description = "Clean anime & manga artwork • No API key needed",
+        isZeroAuth = true
+    ),
+    KONACHAN(
+        id = "konachan",
+        displayName = "Konachan",
+        description = "High-resolution phone & desktop wallpapers • No API key needed",
+        isZeroAuth = true
+    ),
+    YANDE_RE(
+        id = "yande",
+        displayName = "Yande.re",
+        description = "Ultra high-resolution artwork & scans • No API key needed",
+        isZeroAuth = true
+    ),
+    DANBOORU(
+        id = "danbooru",
+        displayName = "Danbooru",
+        description = "Massive anime & game art archive • No API key needed",
+        isZeroAuth = true
+    ),
+    GELBOORU(
+        id = "gelbooru",
+        displayName = "Gelbooru",
+        description = "Popular booru imageboard archive • No API key needed",
+        isZeroAuth = true
+    ),
+    TBIB(
+        id = "tbib",
+        displayName = "TBIB (Big Idols)",
+        description = "Anime idols, characters & art • No API key needed",
+        isZeroAuth = true
+    ),
+    RULE34(
+        id = "rule34",
+        displayName = "Rule34.xxx",
+        description = "Rule34 archive • Built-in public key or custom private key",
+        isZeroAuth = false
+    );
+
+    companion object {
+        fun fromId(id: String): ImageSource? = entries.find { it.id == id }
+        val DEFAULT_ENABLED: Set<String> = entries.map { it.id }.toSet()
+    }
+}
+
 data class UserPreferences(
     val wallpaperTarget: WallpaperTarget = WallpaperTarget.BOTH,
     val bothScreenMode: BothScreenMode = BothScreenMode.SAME_IMAGE,
@@ -46,7 +107,10 @@ data class UserPreferences(
     val appTheme: AppTheme = AppTheme.SYSTEM,
     val lastAutoUpdateTimestamp: Long = 0L,
     val includedTags: Set<String> = emptySet(),
-    val blockedTags: Set<String> = emptySet()
+    val blockedTags: Set<String> = emptySet(),
+    val enabledSources: Set<String> = ImageSource.DEFAULT_ENABLED,
+    val useCustomRule34Credentials: Boolean = false,
+    val ratingFilter: RatingFilter = RatingFilter.BOTH
 ) {
     val effectiveIntervalMinutes: Long
         get() = if (autoWallpaperInterval == UpdateInterval.CUSTOM) {
