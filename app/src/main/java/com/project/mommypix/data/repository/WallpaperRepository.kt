@@ -189,7 +189,7 @@ class WallpaperRepository(
                 postBuffer.clear()
             } else if (postBuffer.isNotEmpty()) {
                 postBuffer.shuffle()
-                val cached = postBuffer.removeFirst()
+                val cached = postBuffer.removeAt(0)
                 val isFav = database.isFavorite(cached.id)
                 return@withContext Result.success(cached.copy(isFavorite = isFav))
             }
@@ -294,7 +294,7 @@ class WallpaperRepository(
                 }
 
                 postBuffer.shuffle()
-                val chosen = postBuffer.removeFirst()
+                val chosen = postBuffer.removeAt(0)
                 recentPostsCache[chosen.id] = chosen
                 seenPostIds.add(chosen.id)
                 if (seenPostIds.size > 300) {
@@ -665,7 +665,7 @@ class WallpaperRepository(
     suspend fun popPrefetchedWallpaper(): PrefetchedWallpaper? = prefetchMutex.withLock {
         val pool = loadPrefetchPool()
         if (pool.isEmpty()) return null
-        val popped = pool.removeFirst()
+        val popped = pool.removeAt(0)
         savePrefetchPool(pool)
         popped
     }
@@ -673,8 +673,8 @@ class WallpaperRepository(
     suspend fun popTwoPrefetchedWallpapers(): Pair<PrefetchedWallpaper, PrefetchedWallpaper>? = prefetchMutex.withLock {
         val pool = loadPrefetchPool()
         if (pool.size < 2) return null
-        val first = pool.removeFirst()
-        val second = pool.removeFirst()
+        val first = pool.removeAt(0)
+        val second = pool.removeAt(0)
         savePrefetchPool(pool)
         Pair(first, second)
     }
