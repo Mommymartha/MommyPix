@@ -5,6 +5,7 @@ import com.project.mommypix.data.api.ApiClient
 import com.project.mommypix.data.api.PostDto
 import com.project.mommypix.data.api.Rule34Api
 import com.project.mommypix.data.downloader.ImageDownloader
+import com.project.mommypix.data.downloader.PornPicsScraper
 import com.project.mommypix.data.local.AppDatabase
 import com.project.mommypix.data.local.DownloadHistoryItem
 import com.project.mommypix.data.local.FavoriteEntity
@@ -30,7 +31,8 @@ class WallpaperRepository(
     private val database: AppDatabase,
     private val downloader: ImageDownloader,
     private val wallpaperManagerHelper: WallpaperManagerHelper,
-    private val preferencesRepository: UserPreferencesRepository? = null
+    private val preferencesRepository: UserPreferencesRepository? = null,
+    private val pornPicsScraper: PornPicsScraper = PornPicsScraper()
 ) {
 
     // In-memory cache of recent post IDs to avoid immediate duplicates
@@ -76,7 +78,7 @@ class WallpaperRepository(
             val r34Response = api.getGelbooruPosts(
                 url = "https://api.rule34.xxx/index.php",
                 limit = 1,
-                tags = ContentFilter.buildSafeTagQuery("sort:random"),
+                tags = ContentFilter.buildSafeTagQuery("order:random"),
                 apiKey = apiKey,
                 userId = userId
             )
@@ -85,7 +87,7 @@ class WallpaperRepository(
             val safebooruResponse = api.getGelbooruPosts(
                 url = "https://safebooru.org/index.php",
                 limit = 1,
-                tags = ContentFilter.buildSafeTagQuery("sort:random")
+                tags = ContentFilter.buildSafeTagQuery("order:random")
             )
 
             val r34Ok = r34Response.isSuccessful
@@ -114,7 +116,10 @@ class WallpaperRepository(
      */
     suspend fun fetchRandomPost(forceRefresh: Boolean = false): Result<Post> = withContext(Dispatchers.IO) {
         try {
-            if (!forceRefresh && postBuffer.isNotEmpty()) {
+            if (forceRefresh) {
+                postBuffer.clear()
+            } else if (postBuffer.isNotEmpty()) {
+                postBuffer.shuffle()
                 val cached = postBuffer.removeFirst()
                 val isFav = database.isFavorite(cached.id)
                 return@withContext Result.success(cached.copy(isFavorite = isFav))
@@ -140,6 +145,31 @@ class WallpaperRepository(
             // Iterate through randomized candidate sources until valid posts are retrieved
             for (source in candidateSources) {
                 try {
+                    // Special handling for PornPics web scraper
+                    if (source == ImageSource.PORNPICS) {
+                        if (ratingFilter == RatingFilter.SAFE_ONLY) continue
+                        val ppPosts = pornPicsScraper.fetchRandomPosts(includedTags, blockedTags)
+                        if (ppPosts.isNotEmpty()) {
+                            val shuffledPP = ppPosts.shuffled()
+                            for (p in shuffledPP) {
+                                recentPostsCache[p.id] = p
+                                if (!seenPostIds.contains(p.id)) {
+                                    postBuffer.add(p)
+                                }
+                            }
+                            if (postBuffer.isEmpty()) {
+                                postBuffer.addAll(shuffledPP)
+                            }
+                            postBuffer.shuffle()
+                            val chosen = postBuffer.removeFirst()
+                            recentPostsCache[chosen.id] = chosen
+                            seenPostIds.add(chosen.id)
+                            val isFav = database.isFavorite(chosen.id)
+                            return@withContext Result.success(chosen.copy(isFavorite = isFav))
+                        }
+                        continue
+                    }
+
                     val dtoList = fetchFromSource(source, includedTags, blockedTags, useCustomRule34, ratingFilter)
                     if (dtoList.isEmpty()) continue
 
@@ -171,7 +201,8 @@ class WallpaperRepository(
                         }
 
                     if (validPosts.isNotEmpty()) {
-                        for (p in validPosts) {
+                        val shuffledPosts = validPosts.shuffled()
+                        for (p in shuffledPosts) {
                             recentPostsCache[p.id] = p
                             if (!seenPostIds.contains(p.id)) {
                                 postBuffer.add(p)
@@ -179,9 +210,10 @@ class WallpaperRepository(
                         }
 
                         if (postBuffer.isEmpty()) {
-                            postBuffer.addAll(validPosts)
+                            postBuffer.addAll(shuffledPosts)
                         }
 
+                        postBuffer.shuffle()
                         val chosen = postBuffer.removeFirst()
                         recentPostsCache[chosen.id] = chosen
                         seenPostIds.add(chosen.id)
@@ -217,12 +249,16 @@ class WallpaperRepository(
     ): List<PostDto> {
         val queryParts = mutableListOf<String>()
 
+        if (source == ImageSource.PORNPICS) {
+            return emptyList()
+        }
+
         when (source) {
             ImageSource.SAFEBOORU, ImageSource.RULE34, ImageSource.GELBOORU, ImageSource.TBIB -> {
-                queryParts.add("sort:random")
+                queryParts.add("order:random")
                 when (ratingFilter) {
-                    RatingFilter.SAFE_ONLY -> queryParts.add("rating:general")
-                    RatingFilter.NSFW_ONLY -> queryParts.add("-rating:general -rating:safe")
+                    RatingFilter.SAFE_ONLY -> queryParts.add("rating:safe")
+                    RatingFilter.NSFW_ONLY -> queryParts.add("-rating:safe")
                     RatingFilter.BOTH -> { /* no rating filter token */ }
                 }
             }
@@ -241,6 +277,9 @@ class WallpaperRepository(
                     RatingFilter.NSFW_ONLY -> queryParts.add("-rating:g")
                     RatingFilter.BOTH -> { /* no rating filter token */ }
                 }
+            }
+            ImageSource.PORNPICS -> {
+                // PornPics content is retrieved via PornPicsScraper; no Booru query needed
             }
         }
 
@@ -310,9 +349,48 @@ class WallpaperRepository(
                     userId = userId
                 )
             }
+            ImageSource.PORNPICS -> return emptyList()
         }
 
         return if (response.isSuccessful) response.body().orEmpty() else emptyList()
+    }
+
+    /**
+     * Downloads post image with multi-tier fallback:
+     * 1. Primary fileUrl
+     * 2. sampleUrl (if present and different)
+     * 3. previewUrl (what user sees rendered on screen)
+     */
+    private suspend fun downloadPostImageWithFallback(
+        post: Post,
+        onProgress: ((Int) -> Unit)? = null,
+        exportToGallery: Boolean = false
+    ): Result<File> {
+        // 1. Attempt primary fileUrl
+        val primaryResult = downloader.downloadImage(post.fileUrl, post.id, onProgress, exportToGallery)
+        if (primaryResult.isSuccess) {
+            return primaryResult
+        }
+
+        Log.w(TAG, "Primary fileUrl download failed for #${post.id} (${post.fileUrl}): ${primaryResult.exceptionOrNull()?.message}. Attempting fallback...")
+
+        // 2. Attempt sampleUrl if present and different
+        if (!post.sampleUrl.isNullOrBlank() && post.sampleUrl != post.fileUrl) {
+            val sampleResult = downloader.downloadImage(post.sampleUrl, post.id, onProgress, exportToGallery)
+            if (sampleResult.isSuccess) {
+                return sampleResult
+            }
+        }
+
+        // 3. Fallback to previewUrl (what user sees on screen)
+        if (post.previewUrl.isNotBlank() && post.previewUrl != post.fileUrl) {
+            val previewResult = downloader.downloadImage(post.previewUrl, post.id, onProgress, exportToGallery)
+            if (previewResult.isSuccess) {
+                return previewResult
+            }
+        }
+
+        return primaryResult
     }
 
     /**
@@ -323,7 +401,9 @@ class WallpaperRepository(
         target: WallpaperTarget
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val downloadResult = downloader.downloadImage(post.fileUrl, post.id)
+            val userPrefs = preferencesRepository?.userPreferencesFlow?.first()
+            val saveToGallery = userPrefs?.saveToGallery ?: false
+            val downloadResult = downloadPostImageWithFallback(post, exportToGallery = saveToGallery)
             val file = downloadResult.getOrElse { return@withContext Result.failure(it) }
 
             val applyResult = wallpaperManagerHelper.applyWallpaper(file, target)
@@ -361,10 +441,12 @@ class WallpaperRepository(
         lockPost: Post
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val homeDownload = downloader.downloadImage(homePost.fileUrl, homePost.id)
+            val userPrefs = preferencesRepository?.userPreferencesFlow?.first()
+            val saveToGallery = userPrefs?.saveToGallery ?: false
+            val homeDownload = downloadPostImageWithFallback(homePost, exportToGallery = saveToGallery)
             val homeFile = homeDownload.getOrElse { return@withContext Result.failure(it) }
 
-            val lockDownload = downloader.downloadImage(lockPost.fileUrl, lockPost.id)
+            val lockDownload = downloadPostImageWithFallback(lockPost, exportToGallery = saveToGallery)
             val lockFile = lockDownload.getOrElse { return@withContext Result.failure(it) }
 
             val applyResult = wallpaperManagerHelper.applyDualWallpapers(homeFile, lockFile)
@@ -416,7 +498,7 @@ class WallpaperRepository(
         post: Post,
         onProgress: ((Int) -> Unit)? = null
     ): Result<File> = withContext(Dispatchers.IO) {
-        val downloadResult = downloader.downloadImage(post.fileUrl, post.id, onProgress)
+        val downloadResult = downloadPostImageWithFallback(post, onProgress, exportToGallery = true)
         val file = downloadResult.getOrElse { return@withContext Result.failure(it) }
 
         database.addDownloadHistory(

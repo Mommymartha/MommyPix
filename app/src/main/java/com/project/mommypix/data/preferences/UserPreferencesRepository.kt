@@ -34,6 +34,7 @@ class UserPreferencesRepository(private val context: Context) {
         val ENABLED_SOURCES = stringSetPreferencesKey("enabled_sources")
         val USE_CUSTOM_RULE34_CREDS = booleanPreferencesKey("use_custom_rule34_creds")
         val RATING_FILTER = stringPreferencesKey("rating_filter")
+        val SAVE_TO_GALLERY = booleanPreferencesKey("save_to_gallery")
     }
 
     val userPreferencesFlow: Flow<UserPreferences> = context.dataStore.data
@@ -51,7 +52,7 @@ class UserPreferencesRepository(private val context: Context) {
 
             val modeStr = preferences[PreferencesKeys.BOTH_SCREEN_MODE]
             val mode = modeStr?.let { runCatching { BothScreenMode.valueOf(it) }.getOrNull() }
-                ?: BothScreenMode.SAME_IMAGE
+                ?: BothScreenMode.DIFFERENT_IMAGES
 
             val isAutoEnabled = preferences[PreferencesKeys.AUTO_WALLPAPER_ENABLED] ?: false
 
@@ -83,6 +84,8 @@ class UserPreferencesRepository(private val context: Context) {
             val ratingFilter = ratingFilterStr?.let { runCatching { RatingFilter.valueOf(it) }.getOrNull() }
                 ?: RatingFilter.BOTH
 
+            val saveToGallery = preferences[PreferencesKeys.SAVE_TO_GALLERY] ?: false
+
             UserPreferences(
                 wallpaperTarget = target,
                 bothScreenMode = mode,
@@ -97,7 +100,8 @@ class UserPreferencesRepository(private val context: Context) {
                 blockedTags = blkTags,
                 enabledSources = sources,
                 useCustomRule34Credentials = useCustomCreds,
-                ratingFilter = ratingFilter
+                ratingFilter = ratingFilter,
+                saveToGallery = saveToGallery
             )
         }
 
@@ -215,6 +219,12 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setRatingFilter(filter: RatingFilter) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.RATING_FILTER] = filter.name
+        }
+    }
+
+    suspend fun setSaveToGallery(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.SAVE_TO_GALLERY] = enabled
         }
     }
 }

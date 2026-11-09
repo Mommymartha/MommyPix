@@ -55,20 +55,20 @@ class CredentialStorage(context: Context) {
         return hasCustomCredentials()
     }
 
-    fun getEffectiveUserId(useCustom: Boolean): String {
+    fun getEffectiveUserId(useCustom: Boolean): String? {
         if (useCustom) {
             val custom = getUserId()
             if (!custom.isNullOrBlank()) return custom
         }
-        return getUserId() ?: DEFAULT_PUBLIC_USER_ID
+        return null
     }
 
-    fun getEffectiveApiKey(useCustom: Boolean): String {
+    fun getEffectiveApiKey(useCustom: Boolean): String? {
         if (useCustom) {
             val custom = getApiKey()
             if (!custom.isNullOrBlank()) return custom
         }
-        return getApiKey() ?: DEFAULT_PUBLIC_API_KEY
+        return null
     }
 
     fun clearCredentials() {

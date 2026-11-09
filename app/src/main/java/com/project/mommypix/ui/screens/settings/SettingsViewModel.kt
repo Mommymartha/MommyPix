@@ -349,6 +349,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun setSaveToGallery(enabled: Boolean) {
+        viewModelScope.launch {
+            prefsRepository.setSaveToGallery(enabled)
+            _uiState.update {
+                it.copy(
+                    userMessage = if (enabled) {
+                        "Auto-save to Gallery enabled (Pictures/MommyPix)"
+                    } else {
+                        "Auto-save to Gallery disabled (wallpapers stay private)"
+                    }
+                )
+            }
+        }
+    }
+
     fun clearCache() {
         viewModelScope.launch {
             val cleared = repository.clearCache()

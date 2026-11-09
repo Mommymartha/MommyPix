@@ -88,6 +88,12 @@ enum class ImageSource(
         displayName = "Rule34.xxx",
         description = "Rule34 archive • Built-in public key or custom private key",
         isZeroAuth = false
+    ),
+    PORNPICS(
+        id = "pornpics",
+        displayName = "PornPics",
+        description = "Real model photography & galleries • Web Scraper",
+        isZeroAuth = true
     );
 
     companion object {
@@ -98,7 +104,7 @@ enum class ImageSource(
 
 data class UserPreferences(
     val wallpaperTarget: WallpaperTarget = WallpaperTarget.BOTH,
-    val bothScreenMode: BothScreenMode = BothScreenMode.SAME_IMAGE,
+    val bothScreenMode: BothScreenMode = BothScreenMode.DIFFERENT_IMAGES,
     val isAutoWallpaperEnabled: Boolean = false,
     val autoWallpaperInterval: UpdateInterval = UpdateInterval.HOURS_1,
     val customIntervalMinutes: Long = 1L,
@@ -110,7 +116,8 @@ data class UserPreferences(
     val blockedTags: Set<String> = emptySet(),
     val enabledSources: Set<String> = ImageSource.DEFAULT_ENABLED,
     val useCustomRule34Credentials: Boolean = false,
-    val ratingFilter: RatingFilter = RatingFilter.BOTH
+    val ratingFilter: RatingFilter = RatingFilter.BOTH,
+    val saveToGallery: Boolean = false
 ) {
     val effectiveIntervalMinutes: Long
         get() = if (autoWallpaperInterval == UpdateInterval.CUSTOM) {

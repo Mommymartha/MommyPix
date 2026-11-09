@@ -13,18 +13,26 @@ object ApiClient {
 
     /**
      * Interceptor to redact sensitive API credentials from logs and
-     * supply a standard user agent header to prevent 403 Forbidden errors.
+     * supply a standard browser user agent to prevent 403 Forbidden errors.
      */
     private val headersAndAuthRedactionInterceptor = Interceptor { chain ->
         val originalRequest = chain.request()
-        val originalUrl = originalRequest.url
 
-        val requestWithHeaders = originalRequest.newBuilder()
-            .header("User-Agent", "MommyPix/1.0 (Android; Kotlin)")
-            .header("Accept", "application/json")
-            .build()
+        val requestBuilder = originalRequest.newBuilder()
+        if (originalRequest.header("User-Agent") == null) {
+            requestBuilder.header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+        if (originalRequest.header("Accept") == null) {
+            requestBuilder.header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7"
+            )
+        }
 
-        chain.proceed(requestWithHeaders)
+        chain.proceed(requestBuilder.build())
     }
 
     private val loggingInterceptor = HttpLoggingInterceptor { message ->
@@ -54,4 +62,3 @@ object ApiClient {
 
     val rule34Api: Rule34Api = retrofit.create(Rule34Api::class.java)
 }
-

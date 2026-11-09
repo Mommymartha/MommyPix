@@ -16,6 +16,7 @@
   - **Gelbooru** (`gelbooru.com`): Popular booru imageboard archive (**Zero Auth**).
   - **TBIB** (`tbib.org`): "The Big Idols Booru" anime idol wallpapers (**Zero Auth**).
   - **Rule34.xxx** (`api.rule34.xxx`): Built-in public key by default or private API credentials for advanced users.
+  - **PornPics** (`pornpics.com`): Real model photography & galleries (**Zero Auth Web Scraper**).
 - **Provider Toggles**: In Settings, check or uncheck any provider to customize your wallpaper pool.
 - **Automatic Failover**: If any site is experiencing network lag or downtime, MommyPix seamlessly falls back to your other enabled sites.
 - **Source Badges**: Each wallpaper displays a badge showing its origin site (`[Safebooru]`, `[Danbooru]`, `[Gelbooru]`, `[Konachan]`, etc.).

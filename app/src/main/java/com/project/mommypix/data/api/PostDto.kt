@@ -59,7 +59,11 @@ data class PostDto(
         val rawFileUrl = largeFileUrl ?: fileUrl
         val resolvedFileUrl = when {
             !rawFileUrl.isNullOrBlank() -> {
-                if (rawFileUrl.startsWith("//")) "https:$rawFileUrl" else rawFileUrl
+                when {
+                    rawFileUrl.startsWith("//") -> "https:$rawFileUrl"
+                    rawFileUrl.startsWith("http://") -> rawFileUrl.replaceFirst("http://", "https://")
+                    else -> rawFileUrl
+                }
             }
             source == ImageSource.SAFEBOORU && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
                 "https://safebooru.org/images/$directory/$image"
@@ -70,13 +74,20 @@ data class PostDto(
             source == ImageSource.TBIB && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
                 "https://tbib.org/images/$directory/$image"
             }
+            source == ImageSource.RULE34 && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
+                "https://api-cdn.rule34.xxx/images/$directory/$image"
+            }
             else -> null
         } ?: return null
 
         val rawPreviewUrl = previewFileUrl ?: previewUrl
         val resolvedPreviewUrl = when {
             !rawPreviewUrl.isNullOrBlank() -> {
-                if (rawPreviewUrl.startsWith("//")) "https:$rawPreviewUrl" else rawPreviewUrl
+                when {
+                    rawPreviewUrl.startsWith("//") -> "https:$rawPreviewUrl"
+                    rawPreviewUrl.startsWith("http://") -> rawPreviewUrl.replaceFirst("http://", "https://")
+                    else -> rawPreviewUrl
+                }
             }
             source == ImageSource.SAFEBOORU && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
                 "https://safebooru.org/thumbnails/$directory/thumbnail_$image"
@@ -87,12 +98,19 @@ data class PostDto(
             source == ImageSource.TBIB && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
                 "https://tbib.org/thumbnails/$directory/thumbnail_$image"
             }
+            source == ImageSource.RULE34 && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
+                "https://api-cdn.rule34.xxx/thumbnails/$directory/thumbnail_$image"
+            }
             else -> resolvedFileUrl
         }
 
         val resolvedSampleUrl = when {
             !sampleUrl.isNullOrBlank() -> {
-                if (sampleUrl.startsWith("//")) "https:$sampleUrl" else sampleUrl
+                when {
+                    sampleUrl.startsWith("//") -> "https:$sampleUrl"
+                    sampleUrl.startsWith("http://") -> sampleUrl.replaceFirst("http://", "https://")
+                    else -> sampleUrl
+                }
             }
             else -> null
         }

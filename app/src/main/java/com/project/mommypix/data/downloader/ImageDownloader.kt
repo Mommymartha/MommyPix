@@ -34,7 +34,8 @@ class ImageDownloader(private val context: Context) {
     suspend fun downloadImage(
         url: String,
         postId: Long,
-        onProgress: ((Int) -> Unit)? = null
+        onProgress: ((Int) -> Unit)? = null,
+        exportToGallery: Boolean = false
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
             if (url.isBlank() || (!url.startsWith("http://") && !url.startsWith("https://"))) {
@@ -52,9 +53,22 @@ class ImageDownloader(private val context: Context) {
 
             val outputFile = File(wallpapersDir, "mommypix_${postId}_${System.currentTimeMillis()}.$extension")
 
+            val referer = when {
+                url.contains("rule34") -> "https://rule34.xxx/"
+                url.contains("gelbooru") -> "https://gelbooru.com/"
+                url.contains("danbooru") -> "https://danbooru.donmai.us/"
+                url.contains("pornpics") -> "https://www.pornpics.com/"
+                else -> "https://safebooru.org/"
+            }
+
             val request = Request.Builder()
                 .url(url)
-                .header("User-Agent", "MommyPix/1.0 (Android; Kotlin)")
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+                .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+                .header("Referer", referer)
                 .build()
 
             val response = ApiClient.okHttpClient.newCall(request).execute()
@@ -67,6 +81,13 @@ class ImageDownloader(private val context: Context) {
             val body = response.body ?: return@withContext Result.failure(
                 Exception("Empty response body from server")
             )
+
+            val contentType = body.contentType()?.toString()?.lowercase().orEmpty()
+            if (contentType.contains("text/html") || contentType.contains("text/plain")) {
+                return@withContext Result.failure(
+                    Exception("Server returned a webpage ($contentType) instead of an image file")
+                )
+            }
 
             val contentLength = body.contentLength()
             if (contentLength > MAX_FILE_SIZE_BYTES) {
@@ -100,12 +121,23 @@ class ImageDownloader(private val context: Context) {
             val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(outputFile.absolutePath, boundsOptions)
             if (boundsOptions.outWidth <= 0 || boundsOptions.outHeight <= 0) {
+                val headerSnippet = try {
+                    FileInputStream(outputFile).use { input ->
+                        val bytes = ByteArray(64)
+                        val read = input.read(bytes)
+                        if (read > 0) String(bytes, 0, read, Charsets.UTF_8).filter { it.isLetterOrDigit() || it.isWhitespace() || it in "<>[]{}:;\"'/" } else ""
+                    }
+                } catch (e: Exception) { "" }
                 outputFile.delete()
-                return@withContext Result.failure(Exception("Downloaded file is not a valid decodable image"))
+                return@withContext Result.failure(
+                    Exception("Downloaded file is not a valid decodable image${if (headerSnippet.isNotBlank()) " (Preview: '$headerSnippet')" else ""}")
+                )
             }
 
-            // Also export a copy to the device's public Pictures/MommyPix gallery album
-            exportToGallery(outputFile, postId)
+            // Export to device's public Gallery album only when explicitly enabled/requested
+            if (exportToGallery) {
+                exportToGallery(outputFile, postId)
+            }
 
             Result.success(outputFile)
         } catch (e: Exception) {

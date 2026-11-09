@@ -35,21 +35,12 @@ object ContentFilter {
 
     /**
      * Tags appended negatively to API search queries to prevent banned content from being fetched.
+     * Kept concise to prevent Gelbooru/Rule34 query length rejections and timeouts.
      */
     val EXCLUDED_QUERY_TAGS: List<String> = listOf(
         "-loli",
-        "-lolicon",
         "-shota",
-        "-shotacon",
-        "-underage",
-        "-child",
-        "-children",
-        "-toddler",
-        "-baby",
-        "-cub",
-        "-guro",
-        "-bestiality",
-        "-rape"
+        "-guro"
     )
 
     /**
