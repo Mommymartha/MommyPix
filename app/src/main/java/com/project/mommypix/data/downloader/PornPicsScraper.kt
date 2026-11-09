@@ -177,10 +177,59 @@ class PornPicsScraper(
         return posts.shuffled()
     }
 
+    /**
+     * Fetches real-life photography wallpapers mapped directly to user-selected subreddits.
+     * Guarantees fast, reliable delivery in regions where Reddit NSFW endpoints or image CDNs
+     * are blocked by ISPs (e.g. India) or georestricted.
+     */
+    suspend fun fetchPostsForSubreddits(
+        subreddits: Set<String>,
+        blockedTags: Set<String>
+    ): List<Post> = withContext(Dispatchers.IO) {
+        val activeSubs = subreddits.filter { it.isNotBlank() }
+            .ifEmpty { com.project.mommypix.data.reddit.SubredditPacks.DEFAULT_ENABLED_SUBREDDITS.toList() }
+
+        val chosenSub = activeSubs.random()
+        val mappedKeyword = com.project.mommypix.data.reddit.SubredditPacks.mapSubredditToSearchTerm(chosenSub)
+        val blockedLower = blockedTags.map { it.lowercase().replace(' ', '-') }.toSet()
+
+        val randomOffset = Random.nextInt(0, 8) * 20
+        val randomPage = Random.nextInt(1, 6)
+
+        val candidateUrls = listOf(
+            "https://www.pornpics.com/tags/$mappedKeyword/",
+            "https://www.pornpics.com/search/recent/?q=$mappedKeyword",
+            "https://www.pornpics.com/search/?q=$mappedKeyword&p=$randomPage",
+            "https://www.pornpics.com/channels/$mappedKeyword/",
+            "https://www.pornpics.com/$mappedKeyword/recent/?limit=50&offset=$randomOffset"
+        ).shuffled()
+
+        var html = ""
+        for (url in candidateUrls) {
+            html = fetchHtml(url)
+            if (html.isNotBlank() && html.contains("thumbwook")) {
+                break
+            }
+        }
+
+        if (html.isBlank()) {
+            return@withContext emptyList()
+        }
+
+        val parsed = parseHtml(html, blockedLower, emptyList())
+        parsed.map { post ->
+            post.copy(
+                sourceName = "r/$chosenSub (Real-Life)",
+                tags = listOf("r/$chosenSub", mappedKeyword) + post.tags
+            )
+        }
+    }
+
     companion object {
         private const val TAG = "PornPicsScraper"
 
         private val POPULAR_DISCOVERY_CATEGORIES = listOf(
+            "bondage", "bdsm", "femdom", "sissy", "chastity", "feet", "amateur",
             "babe", "glamour", "lingerie", "bikini", "milf", "brunette", "blonde", "redhead",
             "asian", "ebony", "mature", "stockings", "high-heels", "legs", "solo", "erotic",
             "cosplay", "sensual", "outdoor", "boobs", "ass", "pussy", "nude", "fitness",

@@ -13,6 +13,7 @@ import com.project.mommypix.data.preferences.RatingFilter
 import com.project.mommypix.data.preferences.UpdateInterval
 import com.project.mommypix.data.preferences.UserPreferences
 import com.project.mommypix.data.preferences.WallpaperTarget
+import com.project.mommypix.data.reddit.SubredditPacks
 import com.project.mommypix.worker.WallpaperScheduler
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +26,9 @@ data class SettingsUiState(
     val userIdInput: String = "",
     val apiKeyInput: String = "",
     val customIntervalMinutesInput: String = "1",
+    val randomMinMinutesInput: String = "5",
+    val randomMaxMinutesInput: String = "30",
+    val customSubredditInput: String = "",
     val includedTagInput: String = "",
     val blockedTagInput: String = "",
     val hasCredentials: Boolean = false,
@@ -98,8 +102,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             prefsRepository.userPreferencesFlow.collectLatest { prefs ->
                 val nextUpdateText = if (prefs.isAutoWallpaperEnabled) {
                     WallpaperScheduler.formatEstimatedNextUpdate(
-                        prefs.effectiveIntervalMinutes,
-                        prefs.lastAutoUpdateTimestamp
+                        intervalMinutes = prefs.effectiveIntervalMinutes,
+                        lastTimestamp = prefs.lastAutoUpdateTimestamp,
+                        isRandom = prefs.autoWallpaperInterval == UpdateInterval.RANDOM,
+                        randomMin = prefs.randomMinMinutes,
+                        randomMax = prefs.randomMaxMinutes
                     )
                 } else {
                     "Automatic wallpaper updates are turned OFF"
@@ -109,6 +116,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     it.copy(
                         userPreferences = prefs,
                         customIntervalMinutesInput = prefs.customIntervalMinutes.toString(),
+                        randomMinMinutesInput = prefs.randomMinMinutes.toString(),
+                        randomMaxMinutesInput = prefs.randomMaxMinutes.toString(),
                         nextScheduledUpdateText = nextUpdateText
                     )
                 }
@@ -141,6 +150,127 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     )
                 }
             }
+        }
+    }
+
+    fun onRandomMinMinutesChanged(value: String) {
+        val filtered = value.filter { it.isDigit() }
+        _uiState.update { it.copy(randomMinMinutesInput = filtered) }
+
+        val parsedMin = filtered.toLongOrNull() ?: return
+        if (parsedMin > 0) {
+            val max = _uiState.value.userPreferences.randomMaxMinutes.coerceAtLeast(parsedMin)
+            viewModelScope.launch {
+                prefsRepository.setRandomIntervalRange(parsedMin, max)
+                val prefs = _uiState.value.userPreferences
+                if (prefs.isAutoWallpaperEnabled && prefs.autoWallpaperInterval == UpdateInterval.RANDOM) {
+                    WallpaperScheduler.scheduleWallpaperWork(
+                        app,
+                        prefs.effectiveIntervalMinutes,
+                        prefs.isWifiOnly
+                    )
+                }
+            }
+        }
+    }
+
+    fun onRandomMaxMinutesChanged(value: String) {
+        val filtered = value.filter { it.isDigit() }
+        _uiState.update { it.copy(randomMaxMinutesInput = filtered) }
+
+        val parsedMax = filtered.toLongOrNull() ?: return
+        if (parsedMax > 0) {
+            val min = _uiState.value.userPreferences.randomMinMinutes
+            val safeMax = parsedMax.coerceAtLeast(min)
+            viewModelScope.launch {
+                prefsRepository.setRandomIntervalRange(min, safeMax)
+                val prefs = _uiState.value.userPreferences
+                if (prefs.isAutoWallpaperEnabled && prefs.autoWallpaperInterval == UpdateInterval.RANDOM) {
+                    WallpaperScheduler.scheduleWallpaperWork(
+                        app,
+                        prefs.effectiveIntervalMinutes,
+                        prefs.isWifiOnly
+                    )
+                }
+            }
+        }
+    }
+
+    // --- Subreddit Wallpapers Operations ---
+
+    fun toggleBooruEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            prefsRepository.setBooruEnabled(enabled)
+            repository.clearBuffer()
+            _uiState.update {
+                it.copy(
+                    userMessage = if (enabled) "Imageboard / Sites rotation enabled" else "Imageboard / Sites rotation disabled"
+                )
+            }
+        }
+    }
+
+    fun toggleRedditEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            prefsRepository.setRedditEnabled(enabled)
+            repository.clearBuffer()
+            _uiState.update {
+                it.copy(
+                    userMessage = if (enabled) "Subreddit wallpapers enabled" else "Subreddit wallpapers disabled"
+                )
+            }
+        }
+    }
+
+    fun toggleSubreddit(subreddit: String, isChecked: Boolean) {
+        viewModelScope.launch {
+            prefsRepository.toggleSubreddit(subreddit, isChecked)
+            repository.clearBuffer()
+        }
+    }
+
+    fun onCustomSubredditInputChanged(value: String) {
+        _uiState.update { it.copy(customSubredditInput = value) }
+    }
+
+    fun addCustomSubreddit(subreddit: String = _uiState.value.customSubredditInput) {
+        val clean = subreddit.trim().removePrefix("r/").removePrefix("/")
+        if (clean.isBlank()) return
+        viewModelScope.launch {
+            prefsRepository.addCustomSubreddit(clean)
+            repository.clearBuffer()
+            _uiState.update {
+                it.copy(
+                    customSubredditInput = "",
+                    userMessage = "Added r/$clean to your active subreddits"
+                )
+            }
+        }
+    }
+
+    fun removeCustomSubreddit(subreddit: String) {
+        viewModelScope.launch {
+            prefsRepository.removeCustomSubreddit(subreddit)
+            repository.clearBuffer()
+            _uiState.update {
+                it.copy(userMessage = "Removed r/$subreddit")
+            }
+        }
+    }
+
+    fun enableAllSubreddits() {
+        viewModelScope.launch {
+            prefsRepository.setEnabledSubreddits(SubredditPacks.ALL_SUBREDDITS.toSet())
+            repository.clearBuffer()
+            _uiState.update { it.copy(userMessage = "All curated subreddits enabled") }
+        }
+    }
+
+    fun resetSubredditsToDefault() {
+        viewModelScope.launch {
+            prefsRepository.setEnabledSubreddits(SubredditPacks.DEFAULT_ENABLED_SUBREDDITS)
+            repository.clearBuffer()
+            _uiState.update { it.copy(userMessage = "Subreddits reset to recommended set") }
         }
     }
 
@@ -317,10 +447,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             prefsRepository.setAutoWallpaperInterval(interval)
             val prefs = _uiState.value.userPreferences
             if (prefs.isAutoWallpaperEnabled) {
-                val effectiveMins = if (interval == UpdateInterval.CUSTOM) {
-                    prefs.customIntervalMinutes.coerceAtLeast(1L)
-                } else {
-                    interval.minutes.coerceAtLeast(1L)
+                val effectiveMins = when (interval) {
+                    UpdateInterval.CUSTOM -> prefs.customIntervalMinutes.coerceAtLeast(1L)
+                    UpdateInterval.RANDOM -> prefs.effectiveIntervalMinutes
+                    else -> interval.minutes.coerceAtLeast(1L)
                 }
                 WallpaperScheduler.scheduleWallpaperWork(app, effectiveMins, prefs.isWifiOnly)
             }

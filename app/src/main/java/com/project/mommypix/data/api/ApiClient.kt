@@ -28,7 +28,7 @@ object ApiClient {
         if (originalRequest.header("Accept") == null) {
             requestBuilder.header(
                 "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7"
+                "application/json, text/plain, */*"
             )
         }
 

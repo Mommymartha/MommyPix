@@ -171,7 +171,23 @@ object WallpaperScheduler {
             .map { list -> list.firstOrNull() }
     }
 
-    fun formatEstimatedNextUpdate(intervalMinutes: Long, lastTimestamp: Long): String {
+    fun formatEstimatedNextUpdate(
+        intervalMinutes: Long,
+        lastTimestamp: Long,
+        isRandom: Boolean = false,
+        randomMin: Long = 5L,
+        randomMax: Long = 30L
+    ): String {
+        if (isRandom) {
+            val rangeLabel = "Random ($randomMin - $randomMax min)"
+            if (lastTimestamp <= 0L) {
+                return "$rangeLabel • Armed in background"
+            }
+            val nextTimeMs = lastTimestamp + (intervalMinutes.coerceAtLeast(1L) * 60 * 1000L)
+            val sdf = SimpleDateFormat("HH:mm:ss, MMM dd", Locale.getDefault())
+            return "$rangeLabel • Next update ~${sdf.format(Date(nextTimeMs))}"
+        }
+
         val mins = intervalMinutes.coerceAtLeast(1L)
         val label = when {
             mins == 1L -> "1 minute"

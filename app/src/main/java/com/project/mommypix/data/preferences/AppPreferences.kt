@@ -1,5 +1,7 @@
 package com.project.mommypix.data.preferences
 
+import com.project.mommypix.data.reddit.SubredditPacks
+
 enum class WallpaperTarget(val title: String) {
     HOME("Home Screen Only"),
     LOCK("Lock Screen Only"),
@@ -21,7 +23,8 @@ enum class UpdateInterval(val title: String, val minutes: Long) {
     HOURS_6("6 hours", 360),
     HOURS_12("12 hours", 720),
     HOURS_24("24 hours", 1440),
-    CUSTOM("Custom interval", -1)
+    CUSTOM("Custom interval", -1),
+    RANDOM("Random interval", -2)
 }
 
 enum class DownloadQuality(val title: String) {
@@ -47,52 +50,22 @@ enum class ImageSource(
     val description: String,
     val isZeroAuth: Boolean
 ) {
-    SAFEBOORU(
-        id = "safebooru",
-        displayName = "Safebooru",
-        description = "Clean anime & manga artwork • No API key needed",
-        isZeroAuth = true
-    ),
-    KONACHAN(
-        id = "konachan",
-        displayName = "Konachan",
-        description = "High-resolution phone & desktop wallpapers • No API key needed",
-        isZeroAuth = true
-    ),
-    YANDE_RE(
-        id = "yande",
-        displayName = "Yande.re",
-        description = "Ultra high-resolution artwork & scans • No API key needed",
-        isZeroAuth = true
-    ),
-    DANBOORU(
-        id = "danbooru",
-        displayName = "Danbooru",
-        description = "Massive anime & game art archive • No API key needed",
-        isZeroAuth = true
-    ),
-    GELBOORU(
-        id = "gelbooru",
-        displayName = "Gelbooru",
-        description = "Popular booru imageboard archive • No API key needed",
-        isZeroAuth = true
-    ),
-    TBIB(
-        id = "tbib",
-        displayName = "TBIB (Big Idols)",
-        description = "Anime idols, characters & art • No API key needed",
-        isZeroAuth = true
-    ),
     RULE34(
         id = "rule34",
         displayName = "Rule34.xxx",
-        description = "Rule34 archive • Built-in public key or custom private key",
-        isZeroAuth = false
+        description = "NSFW & Anime imageboard • Authenticated API",
+        isZeroAuth = true
     ),
     PORNPICS(
         id = "pornpics",
         displayName = "PornPics",
         description = "Real model photography & galleries • Web Scraper",
+        isZeroAuth = true
+    ),
+    YANDE_RE(
+        id = "yande",
+        displayName = "Yande.re",
+        description = "Ultra high-resolution artwork & NSFW scans • Zero-Auth",
         isZeroAuth = true
     );
 
@@ -108,6 +81,8 @@ data class UserPreferences(
     val isAutoWallpaperEnabled: Boolean = false,
     val autoWallpaperInterval: UpdateInterval = UpdateInterval.HOURS_1,
     val customIntervalMinutes: Long = 1L,
+    val randomMinMinutes: Long = 5L,
+    val randomMaxMinutes: Long = 30L,
     val isWifiOnly: Boolean = false,
     val downloadQuality: DownloadQuality = DownloadQuality.ORIGINAL,
     val appTheme: AppTheme = AppTheme.SYSTEM,
@@ -117,25 +92,40 @@ data class UserPreferences(
     val enabledSources: Set<String> = ImageSource.DEFAULT_ENABLED,
     val useCustomRule34Credentials: Boolean = false,
     val ratingFilter: RatingFilter = RatingFilter.BOTH,
-    val saveToGallery: Boolean = false
+    val saveToGallery: Boolean = false,
+    val isBooruEnabled: Boolean = true,
+    val isRedditEnabled: Boolean = true,
+    val enabledSubreddits: Set<String> = SubredditPacks.DEFAULT_ENABLED_SUBREDDITS,
+    val customSubreddits: Set<String> = emptySet()
 ) {
     val effectiveIntervalMinutes: Long
-        get() = if (autoWallpaperInterval == UpdateInterval.CUSTOM) {
-            customIntervalMinutes.coerceAtLeast(1L)
-        } else {
-            autoWallpaperInterval.minutes.coerceAtLeast(1L)
+        get() = when (autoWallpaperInterval) {
+            UpdateInterval.CUSTOM -> customIntervalMinutes.coerceAtLeast(1L)
+            UpdateInterval.RANDOM -> {
+                val min = randomMinMinutes.coerceAtLeast(1L)
+                val max = randomMaxMinutes.coerceAtLeast(min)
+                if (min == max) min else kotlin.random.Random.nextLong(min, max + 1L)
+            }
+            else -> autoWallpaperInterval.minutes.coerceAtLeast(1L)
         }
 
     val displayIntervalTitle: String
-        get() = if (autoWallpaperInterval == UpdateInterval.CUSTOM) {
-            val hours = customIntervalMinutes / 60
-            val mins = customIntervalMinutes % 60
-            when {
-                customIntervalMinutes < 60 -> "$customIntervalMinutes min"
-                mins == 0L -> "$hours ${if (hours == 1L) "hour" else "hours"}"
-                else -> "${hours}h ${mins}m"
+        get() = when (autoWallpaperInterval) {
+            UpdateInterval.CUSTOM -> {
+                val hours = customIntervalMinutes / 60
+                val mins = customIntervalMinutes % 60
+                when {
+                    customIntervalMinutes < 60 -> "$customIntervalMinutes min"
+                    mins == 0L -> "$hours ${if (hours == 1L) "hour" else "hours"}"
+                    else -> "${hours}h ${mins}m"
+                }
             }
-        } else {
-            autoWallpaperInterval.title
+            UpdateInterval.RANDOM -> {
+                "Random ($randomMinMinutes - $randomMaxMinutes min)"
+            }
+            else -> autoWallpaperInterval.title
         }
+
+    val allActiveSubreddits: Set<String>
+        get() = enabledSubreddits + customSubreddits
 }

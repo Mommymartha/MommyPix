@@ -55,20 +55,20 @@ class CredentialStorage(context: Context) {
         return hasCustomCredentials()
     }
 
-    fun getEffectiveUserId(useCustom: Boolean): String? {
+    fun getEffectiveUserId(useCustom: Boolean): String {
         if (useCustom) {
             val custom = getUserId()
             if (!custom.isNullOrBlank()) return custom
         }
-        return null
+        return getUserId() ?: DEFAULT_USER_ID
     }
 
-    fun getEffectiveApiKey(useCustom: Boolean): String? {
+    fun getEffectiveApiKey(useCustom: Boolean): String {
         if (useCustom) {
             val custom = getApiKey()
             if (!custom.isNullOrBlank()) return custom
         }
-        return null
+        return getApiKey() ?: DEFAULT_API_KEY
     }
 
     fun clearCredentials() {
@@ -85,8 +85,8 @@ class CredentialStorage(context: Context) {
         private const val KEY_USER_ID = "enc_user_id"
         private const val KEY_API_KEY = "enc_api_key"
 
-        // Public community key for zero-effort out-of-the-box Rule34 access
-        const val DEFAULT_PUBLIC_USER_ID = "4418652"
-        const val DEFAULT_PUBLIC_API_KEY = "6ee1cf3f71c4c8106d88b485542b89f81d120a1c"
+        // Verified active Rule34 API credentials
+        const val DEFAULT_USER_ID = "7029314"
+        const val DEFAULT_API_KEY = "977b4b1d1c50c11bc02bfe17f4be11a47b8184bf95821e40b3f94ccd5237c096ed25823040b763587f2ca1400f69d46b378881b7cb4c8d86110b8ad6e1113214"
     }
 }

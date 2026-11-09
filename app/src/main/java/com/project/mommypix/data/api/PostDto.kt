@@ -65,15 +65,6 @@ data class PostDto(
                     else -> rawFileUrl
                 }
             }
-            source == ImageSource.SAFEBOORU && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
-                "https://safebooru.org/images/$directory/$image"
-            }
-            source == ImageSource.GELBOORU && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
-                "https://img3.gelbooru.com/images/$directory/$image"
-            }
-            source == ImageSource.TBIB && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
-                "https://tbib.org/images/$directory/$image"
-            }
             source == ImageSource.RULE34 && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
                 "https://api-cdn.rule34.xxx/images/$directory/$image"
             }
@@ -88,15 +79,6 @@ data class PostDto(
                     rawPreviewUrl.startsWith("http://") -> rawPreviewUrl.replaceFirst("http://", "https://")
                     else -> rawPreviewUrl
                 }
-            }
-            source == ImageSource.SAFEBOORU && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
-                "https://safebooru.org/thumbnails/$directory/thumbnail_$image"
-            }
-            source == ImageSource.GELBOORU && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
-                "https://img3.gelbooru.com/thumbnails/$directory/thumbnail_$image"
-            }
-            source == ImageSource.TBIB && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
-                "https://tbib.org/thumbnails/$directory/thumbnail_$image"
             }
             source == ImageSource.RULE34 && !directory.isNullOrBlank() && !image.isNullOrBlank() -> {
                 "https://api-cdn.rule34.xxx/thumbnails/$directory/thumbnail_$image"

@@ -11,8 +11,11 @@ import com.project.mommypix.data.local.DownloadHistoryItem
 import com.project.mommypix.data.local.FavoriteEntity
 import com.project.mommypix.data.preferences.ImageSource
 import com.project.mommypix.data.preferences.RatingFilter
+import com.project.mommypix.data.preferences.UserPreferences
 import com.project.mommypix.data.preferences.UserPreferencesRepository
 import com.project.mommypix.data.preferences.WallpaperTarget
+import com.project.mommypix.data.reddit.RedditScraper
+import com.project.mommypix.data.reddit.SubredditPacks
 import com.project.mommypix.domain.model.Post
 import com.project.mommypix.security.ContentFilter
 import com.project.mommypix.security.CredentialStorage
@@ -22,6 +25,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import okhttp3.ResponseBody
 import retrofit2.Response
 import java.io.File
 
@@ -32,7 +38,8 @@ class WallpaperRepository(
     private val downloader: ImageDownloader,
     private val wallpaperManagerHelper: WallpaperManagerHelper,
     private val preferencesRepository: UserPreferencesRepository? = null,
-    private val pornPicsScraper: PornPicsScraper = PornPicsScraper()
+    private val pornPicsScraper: PornPicsScraper = PornPicsScraper(),
+    private val redditScraper: RedditScraper = RedditScraper()
 ) {
 
     // In-memory cache of recent post IDs to avoid immediate duplicates
@@ -57,8 +64,7 @@ class WallpaperRepository(
 
     /**
      * Checks if image fetching is possible.
-     * Always returns true because zero-auth open sources (Safebooru, Konachan, Yande.re)
-     * and default public Rule34 credentials are ready out-of-the-box.
+     * Always returns true because authenticated Rule34, PornPics, and Yande.re are ready out-of-the-box.
      */
     fun hasCredentials(): Boolean = true
 
@@ -74,7 +80,7 @@ class WallpaperRepository(
             val userId = credentialStorage.getEffectiveUserId(useCustom)
             val apiKey = credentialStorage.getEffectiveApiKey(useCustom)
 
-            // Test Rule34 access
+            // Test Rule34 access with user's verified credentials
             val r34Response = api.getGelbooruPosts(
                 url = "https://api.rule34.xxx/index.php",
                 limit = 1,
@@ -82,26 +88,58 @@ class WallpaperRepository(
                 apiKey = apiKey,
                 userId = userId
             )
+            val r34Body = r34Response.body()?.string()?.trim().orEmpty()
+            val r34Ok = r34Response.isSuccessful && r34Body.startsWith("[")
 
-            // Test Open Source access (Safebooru)
-            val safebooruResponse = api.getGelbooruPosts(
-                url = "https://safebooru.org/index.php",
+            // Test Yande.re (Zero-Auth Open Moebooru source)
+            val yandereResponse = api.getMoebooruPosts(
+                url = "https://yande.re/post.json",
                 limit = 1,
                 tags = ContentFilter.buildSafeTagQuery("order:random")
             )
+            val yandereBody = yandereResponse.body()?.string()?.trim().orEmpty()
+            val yandereOk = yandereResponse.isSuccessful && yandereBody.startsWith("[")
 
-            val r34Ok = r34Response.isSuccessful
-            val safeOk = safebooruResponse.isSuccessful
+            // Test Reddit zero-auth public feed connectivity
+            val testReddit = try {
+                redditScraper.fetchRandomPosts(
+                    subreddits = userPrefs?.allActiveSubreddits ?: setOf("gonewild", "Bondage"),
+                    blockedTags = emptySet(),
+                    ratingFilter = RatingFilter.BOTH
+                )
+            } catch (e: Exception) {
+                emptyList()
+            }
+            val redditOk = testReddit.isNotEmpty()
 
-            if (r34Ok || safeOk) {
+            val testRealLifeFallback = if (!redditOk) {
+                try {
+                    pornPicsScraper.fetchPostsForSubreddits(
+                        subreddits = userPrefs?.allActiveSubreddits ?: setOf("gonewild", "Bondage"),
+                        blockedTags = emptySet()
+                    )
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+            val realLifeOk = redditOk || testRealLifeFallback.isNotEmpty()
+
+            if (r34Ok || yandereOk || realLifeOk) {
                 val details = buildString {
                     append("Connection successful! ")
-                    if (r34Ok) append("Rule34 (Authenticated) OK. ")
-                    if (safeOk) append("Safebooru (Public) OK. ")
+                    if (r34Ok) append("Rule34 (User #$userId) OK. ") else append("Rule34 returned non-array (${r34Body.take(60)}). ")
+                    if (yandereOk) append("Yande.re OK. ")
+                    if (redditOk) {
+                        append("Reddit (${testReddit.size} sample wallpapers found) OK.")
+                    } else if (testRealLifeFallback.isNotEmpty()) {
+                        append("Subreddits: ISP blocked direct Reddit; Real-Life CDN fallback OK.")
+                    } else {
+                        append("Subreddits: 0 posts.")
+                    }
                 }
                 Result.success(details)
             } else {
-                Result.failure(Exception("Could not connect to image sources: HTTP ${r34Response.code()}"))
+                Result.failure(Exception("Could not connect to image sources: Rule34: HTTP ${r34Response.code()} ($r34Body)"))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Test connection failed", e)
@@ -110,7 +148,7 @@ class WallpaperRepository(
     }
 
     /**
-     * Fetches a random valid post across enabled sources.
+     * Fetches a random valid post across enabled sources (Booru boards, PornPics, and Subreddits).
      * Respects user's Included tags and Blocked tags (blacklist),
      * and strictly rejects prohibited illegal content and unsupported formats.
      */
@@ -129,8 +167,12 @@ class WallpaperRepository(
             val userPrefs = preferencesRepository?.userPreferencesFlow?.first()
             val includedTags = userPrefs?.includedTags.orEmpty()
             val blockedTags = userPrefs?.blockedTags.orEmpty()
-            val useCustomRule34 = userPrefs?.useCustomRule34Credentials ?: false
             val ratingFilter = userPrefs?.ratingFilter ?: RatingFilter.BOTH
+            val isBooruEnabled = userPrefs?.isBooruEnabled ?: true
+            val isRedditEnabled = userPrefs?.isRedditEnabled ?: true
+
+            val effectiveBooruEnabled = if (!isBooruEnabled && !isRedditEnabled) true else isBooruEnabled
+            val effectiveRedditEnabled = if (!isBooruEnabled && !isRedditEnabled) true else isRedditEnabled
 
             val enabledSourceIds = userPrefs?.enabledSources ?: ImageSource.DEFAULT_ENABLED
             val candidateSources = enabledSourceIds.mapNotNull { ImageSource.fromId(it) }
@@ -142,101 +184,185 @@ class WallpaperRepository(
 
             var lastError: Exception? = null
 
-            // Iterate through randomized candidate sources until valid posts are retrieved
-            for (source in candidateSources) {
-                try {
-                    // Special handling for PornPics web scraper
-                    if (source == ImageSource.PORNPICS) {
-                        if (ratingFilter == RatingFilter.SAFE_ONLY) continue
-                        val ppPosts = pornPicsScraper.fetchRandomPosts(includedTags, blockedTags)
-                        if (ppPosts.isNotEmpty()) {
-                            val shuffledPP = ppPosts.shuffled()
-                            for (p in shuffledPP) {
-                                recentPostsCache[p.id] = p
-                                if (!seenPostIds.contains(p.id)) {
-                                    postBuffer.add(p)
-                                }
-                            }
-                            if (postBuffer.isEmpty()) {
-                                postBuffer.addAll(shuffledPP)
-                            }
-                            postBuffer.shuffle()
-                            val chosen = postBuffer.removeFirst()
-                            recentPostsCache[chosen.id] = chosen
-                            seenPostIds.add(chosen.id)
-                            val isFav = database.isFavorite(chosen.id)
-                            return@withContext Result.success(chosen.copy(isFavorite = isFav))
-                        }
-                        continue
+            // Determine fetch sequence: Interleaved (both), Reddit only, or Booru only
+            val tryRedditFirst = if (effectiveBooruEnabled && effectiveRedditEnabled) {
+                kotlin.random.Random.nextBoolean()
+            } else {
+                effectiveRedditEnabled
+            }
+
+            var retrievedPosts = emptyList<Post>()
+
+            if (tryRedditFirst) {
+                if (effectiveRedditEnabled) {
+                    try {
+                        retrievedPosts = fetchFromReddit(userPrefs, blockedLower, ratingFilter)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Reddit fetch failed, attempting Booru fallback", e)
+                        lastError = e
                     }
-
-                    val dtoList = fetchFromSource(source, includedTags, blockedTags, useCustomRule34, ratingFilter)
-                    if (dtoList.isEmpty()) continue
-
-                    val validPosts = dtoList.mapNotNull { it.toDomain(source) }
-                        .filter { post ->
-                            val postTagsLower = post.tags.map { it.lowercase() }.toSet()
-
-                            // 1. Mandatory Legal Content Filter
-                            val isLegal = ContentFilter.isPostPermitted(post.tags.joinToString(" "))
-
-                            // 2. Only image formats, no video
-                            val isImage = post.isSupportedImage
-
-                            // 3. User blacklist filter: Must NOT contain any blocked tag
-                            val containsBlocked = postTagsLower.any { blockedLower.contains(it) }
-
-                            // 4. User whitelist filter: If user specified included tags, post should match
-                            val matchesIncluded = includedLower.isEmpty() || postTagsLower.any { includedLower.contains(it) }
-
-                            // 5. Rating filter: Safe vs NSFW vs Both
-                            val r = post.rating.lowercase()
-                            val matchesRating = when (ratingFilter) {
-                                RatingFilter.BOTH -> true
-                                RatingFilter.SAFE_ONLY -> r == "s" || r == "safe" || r == "general" || r == "g"
-                                RatingFilter.NSFW_ONLY -> r == "q" || r == "questionable" || r == "e" || r == "explicit"
-                            }
-
-                            isLegal && isImage && !containsBlocked && matchesIncluded && matchesRating
-                        }
-
-                    if (validPosts.isNotEmpty()) {
-                        val shuffledPosts = validPosts.shuffled()
-                        for (p in shuffledPosts) {
-                            recentPostsCache[p.id] = p
-                            if (!seenPostIds.contains(p.id)) {
-                                postBuffer.add(p)
-                            }
-                        }
-
-                        if (postBuffer.isEmpty()) {
-                            postBuffer.addAll(shuffledPosts)
-                        }
-
-                        postBuffer.shuffle()
-                        val chosen = postBuffer.removeFirst()
-                        recentPostsCache[chosen.id] = chosen
-                        seenPostIds.add(chosen.id)
-                        if (seenPostIds.size > 300) {
-                            seenPostIds.clear()
-                        }
-
-                        val isFav = database.isFavorite(chosen.id)
-                        return@withContext Result.success(chosen.copy(isFavorite = isFav))
+                }
+                if (retrievedPosts.isEmpty() && effectiveBooruEnabled) {
+                    try {
+                        retrievedPosts = fetchFromBooruSources(candidateSources, userPrefs, blockedLower, includedLower, ratingFilter)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Booru fetch failed", e)
+                        lastError = e
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Source ${source.displayName} query failed, trying next source", e)
-                    lastError = e
+                }
+            } else {
+                if (effectiveBooruEnabled) {
+                    try {
+                        retrievedPosts = fetchFromBooruSources(candidateSources, userPrefs, blockedLower, includedLower, ratingFilter)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Booru fetch failed, attempting Reddit fallback", e)
+                        lastError = e
+                    }
+                }
+                if (retrievedPosts.isEmpty() && effectiveRedditEnabled) {
+                    try {
+                        retrievedPosts = fetchFromReddit(userPrefs, blockedLower, ratingFilter)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Reddit fetch failed", e)
+                        lastError = e
+                    }
                 }
             }
 
-            // Fallback error if all sources failed
+            if (retrievedPosts.isNotEmpty()) {
+                val shuffledPosts = retrievedPosts.shuffled()
+                for (p in shuffledPosts) {
+                    recentPostsCache[p.id] = p
+                    if (!seenPostIds.contains(p.id)) {
+                        postBuffer.add(p)
+                    }
+                }
+
+                if (postBuffer.isEmpty()) {
+                    postBuffer.addAll(shuffledPosts)
+                }
+
+                postBuffer.shuffle()
+                val chosen = postBuffer.removeFirst()
+                recentPostsCache[chosen.id] = chosen
+                seenPostIds.add(chosen.id)
+                if (seenPostIds.size > 300) {
+                    seenPostIds.clear()
+                }
+
+                val isFav = database.isFavorite(chosen.id)
+                return@withContext Result.success(chosen.copy(isFavorite = isFav))
+            }
+
+            // Fallback error if all enabled sources failed or returned empty
             Result.failure(
                 lastError ?: Exception("No wallpapers found matching your filters across enabled sources.")
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching random post", e)
             Result.failure(e)
+        }
+    }
+
+    private suspend fun fetchFromReddit(
+        userPrefs: UserPreferences?,
+        blockedLower: Set<String>,
+        ratingFilter: RatingFilter
+    ): List<Post> {
+        val targetSubs = userPrefs?.allActiveSubreddits ?: SubredditPacks.DEFAULT_ENABLED_SUBREDDITS
+        val redditPosts = redditScraper.fetchRandomPosts(
+            subreddits = targetSubs,
+            blockedTags = userPrefs?.blockedTags.orEmpty(),
+            ratingFilter = ratingFilter
+        )
+        if (redditPosts.isNotEmpty()) {
+            return redditPosts
+        }
+
+        // Region / ISP Censorship Fallback:
+        // Indian ISPs (Jio, Airtel, Vi) and Reddit regional filters frequently block/geoblock
+        // unauthenticated Reddit NSFW endpoints. Automatically fallback to Real-Life photo CDN (PornPics)
+        // using the exact same subreddit categories (BDSM, Feet, Sissy, Amateur, etc.)
+        Log.i(TAG, "Reddit returned 0 posts (likely regional ISP block); seamlessly falling back to Real-Life photo CDN for chosen subreddits")
+        return pornPicsScraper.fetchPostsForSubreddits(
+            subreddits = targetSubs,
+            blockedTags = userPrefs?.blockedTags.orEmpty()
+        )
+    }
+
+    private suspend fun fetchFromBooruSources(
+        candidateSources: List<ImageSource>,
+        userPrefs: UserPreferences?,
+        blockedLower: Set<String>,
+        includedLower: Set<String>,
+        ratingFilter: RatingFilter
+    ): List<Post> {
+        val includedTags = userPrefs?.includedTags.orEmpty()
+        val blockedTags = userPrefs?.blockedTags.orEmpty()
+        val useCustomRule34 = userPrefs?.useCustomRule34Credentials ?: false
+
+        for (source in candidateSources) {
+            try {
+                if (source == ImageSource.PORNPICS) {
+                    if (ratingFilter == RatingFilter.SAFE_ONLY) continue
+                    val ppPosts = pornPicsScraper.fetchRandomPosts(includedTags, blockedTags)
+                    if (ppPosts.isNotEmpty()) {
+                        return ppPosts
+                    }
+                    continue
+                }
+
+                val dtoList = fetchFromSource(source, includedTags, blockedTags, useCustomRule34, ratingFilter)
+                if (dtoList.isEmpty()) continue
+
+                val validPosts = dtoList.mapNotNull { it.toDomain(source) }
+                    .filter { post ->
+                        val postTagsLower = post.tags.map { it.lowercase() }.toSet()
+                        val isLegal = ContentFilter.isPostPermitted(post.tags.joinToString(" "))
+                        val isImage = post.isSupportedImage
+                        val containsBlocked = postTagsLower.any { blockedLower.contains(it) }
+                        val matchesIncluded = includedLower.isEmpty() || postTagsLower.any { includedLower.contains(it) }
+                        val r = post.rating.lowercase()
+                        val matchesRating = when (ratingFilter) {
+                            RatingFilter.BOTH -> true
+                            RatingFilter.SAFE_ONLY -> r == "s" || r == "safe" || r == "general" || r == "g"
+                            RatingFilter.NSFW_ONLY -> r == "q" || r == "questionable" || r == "e" || r == "explicit"
+                        }
+                        isLegal && isImage && !containsBlocked && matchesIncluded && matchesRating
+                    }
+
+                if (validPosts.isNotEmpty()) {
+                    return validPosts
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Source ${source.displayName} query failed, trying next source", e)
+            }
+        }
+        return emptyList()
+    }
+
+    /**
+     * Parses raw JSON responses defensively to prevent Gson IllegalStateExceptions
+     * (e.g., 'Expected BEGIN_ARRAY but was STRING') when servers return error messages.
+     */
+    private fun parsePostListSafely(rawBody: String?, source: ImageSource): List<PostDto> {
+        val trimmed = rawBody?.trim().orEmpty()
+        if (trimmed.isBlank()) {
+            Log.w(TAG, "[$source] Received empty response from server")
+            return emptyList()
+        }
+
+        if (!trimmed.startsWith("[")) {
+            Log.w(TAG, "[$source] Received non-array response from server: ${trimmed.take(200)}")
+            return emptyList()
+        }
+
+        return try {
+            val listType = object : TypeToken<List<PostDto>>() {}.type
+            Gson().fromJson<List<PostDto>>(trimmed, listType).orEmpty()
+        } catch (e: Exception) {
+            Log.e(TAG, "[$source] JSON parsing failed: ${e.message}", e)
+            emptyList()
         }
     }
 
@@ -254,7 +380,7 @@ class WallpaperRepository(
         }
 
         when (source) {
-            ImageSource.SAFEBOORU, ImageSource.RULE34, ImageSource.GELBOORU, ImageSource.TBIB -> {
+            ImageSource.RULE34 -> {
                 queryParts.add("order:random")
                 when (ratingFilter) {
                     RatingFilter.SAFE_ONLY -> queryParts.add("rating:safe")
@@ -262,19 +388,11 @@ class WallpaperRepository(
                     RatingFilter.BOTH -> { /* no rating filter token */ }
                 }
             }
-            ImageSource.KONACHAN, ImageSource.YANDE_RE -> {
+            ImageSource.YANDE_RE -> {
                 queryParts.add("order:random")
                 when (ratingFilter) {
                     RatingFilter.SAFE_ONLY -> queryParts.add("rating:s")
                     RatingFilter.NSFW_ONLY -> queryParts.add("-rating:s")
-                    RatingFilter.BOTH -> { /* no rating filter token */ }
-                }
-            }
-            ImageSource.DANBOORU -> {
-                queryParts.add("order:random")
-                when (ratingFilter) {
-                    RatingFilter.SAFE_ONLY -> queryParts.add("rating:g")
-                    RatingFilter.NSFW_ONLY -> queryParts.add("-rating:g")
                     RatingFilter.BOTH -> { /* no rating filter token */ }
                 }
             }
@@ -295,49 +413,7 @@ class WallpaperRepository(
 
         val safeQuery = ContentFilter.buildSafeTagQuery(queryParts.joinToString(" "))
 
-        val response: Response<List<PostDto>> = when (source) {
-            ImageSource.SAFEBOORU -> {
-                api.getGelbooruPosts(
-                    url = "https://safebooru.org/index.php",
-                    limit = 10,
-                    tags = safeQuery
-                )
-            }
-            ImageSource.GELBOORU -> {
-                api.getGelbooruPosts(
-                    url = "https://gelbooru.com/index.php",
-                    limit = 10,
-                    tags = safeQuery
-                )
-            }
-            ImageSource.TBIB -> {
-                api.getGelbooruPosts(
-                    url = "https://tbib.org/index.php",
-                    limit = 10,
-                    tags = safeQuery
-                )
-            }
-            ImageSource.KONACHAN -> {
-                api.getMoebooruPosts(
-                    url = "https://konachan.net/post.json",
-                    limit = 10,
-                    tags = safeQuery
-                )
-            }
-            ImageSource.YANDE_RE -> {
-                api.getMoebooruPosts(
-                    url = "https://yande.re/post.json",
-                    limit = 10,
-                    tags = safeQuery
-                )
-            }
-            ImageSource.DANBOORU -> {
-                api.getMoebooruPosts(
-                    url = "https://danbooru.donmai.us/posts.json",
-                    limit = 10,
-                    tags = safeQuery
-                )
-            }
+        val response: Response<ResponseBody> = when (source) {
             ImageSource.RULE34 -> {
                 val userId = credentialStorage.getEffectiveUserId(useCustomRule34)
                 val apiKey = credentialStorage.getEffectiveApiKey(useCustomRule34)
@@ -349,10 +425,29 @@ class WallpaperRepository(
                     userId = userId
                 )
             }
+            ImageSource.YANDE_RE -> {
+                api.getMoebooruPosts(
+                    url = "https://yande.re/post.json",
+                    limit = 10,
+                    tags = safeQuery
+                )
+            }
             ImageSource.PORNPICS -> return emptyList()
         }
 
-        return if (response.isSuccessful) response.body().orEmpty() else emptyList()
+        if (!response.isSuccessful) {
+            Log.w(TAG, "[$source] HTTP ${response.code()} ${response.message()}")
+            return emptyList()
+        }
+
+        val bodyString = try {
+            response.body()?.string()
+        } catch (e: Exception) {
+            Log.e(TAG, "[$source] Error reading response body", e)
+            null
+        }
+
+        return parsePostListSafely(bodyString, source)
     }
 
     /**

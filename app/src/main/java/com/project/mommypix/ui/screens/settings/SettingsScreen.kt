@@ -96,6 +96,7 @@ import com.project.mommypix.data.preferences.ImageSource
 import com.project.mommypix.data.preferences.RatingFilter
 import com.project.mommypix.data.preferences.UpdateInterval
 import com.project.mommypix.data.preferences.WallpaperTarget
+import com.project.mommypix.data.reddit.SubredditPacks
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -169,21 +170,34 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(Icons.Default.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = "Wallpaper Sources & Sites",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Public, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = "Imageboards & Sites",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+
+                        Switch(
+                            checked = state.userPreferences.isBooruEnabled,
+                            onCheckedChange = { viewModel.toggleBooruEnabled(it) }
                         )
                     }
 
-                    Text(
-                        text = "Choose which wallpaper boards to include in your random rotation. Safebooru, Konachan, and Yande.re require 0 setup and work out-of-the-box!",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (state.userPreferences.isBooruEnabled) {
+                        Text(
+                            text = "Choose which wallpaper sources to include in your random rotation. Rule34, PornPics, and Yande.re work out-of-the-box!",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
 
                     // List of sources with checkboxes
                     ImageSource.entries.forEach { source ->
@@ -333,6 +347,20 @@ fun SettingsScreen(
                             }
                         }
                     }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Imageboards & websites are disabled. Wallpapers will be retrieved exclusively from Subreddits.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+                    }
 
                     // Test Sources Connection Button
                     OutlinedButton(
@@ -367,6 +395,247 @@ fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (state.isConnectionSuccess == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                             )
+                        }
+                    }
+                }
+            }
+
+            // Section 2: Subreddit Wallpapers 🔞
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(text = "🔞", fontSize = 22.sp)
+                            Column {
+                                Text(
+                                    text = "Subreddit Wallpapers",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                                Text(
+                                    text = "Zero-auth • No Reddit account or app required",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = state.userPreferences.isRedditEnabled,
+                            onCheckedChange = { viewModel.toggleRedditEnabled(it) }
+                        )
+                    }
+
+                    // Combined Mode Info Banner
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val modeDescription = when {
+                            state.userPreferences.isBooruEnabled && state.userPreferences.isRedditEnabled ->
+                                "Active Shuffle: Imageboards + Subreddits interleaved (50/50 balance)"
+                            state.userPreferences.isRedditEnabled ->
+                                "Active Shuffle: Subreddit wallpapers exclusively"
+                            state.userPreferences.isBooruEnabled ->
+                                "Active Shuffle: Imageboards & PornPics exclusively"
+                            else ->
+                                "Notice: Both providers disabled. Enable at least one to fetch wallpapers."
+                        }
+                        Text(
+                            text = modeDescription,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+
+                    if (state.userPreferences.isRedditEnabled) {
+                        Text(
+                            text = "Toggle your preferred adult & niche subreddits below. In regions where direct adult Reddit is blocked by ISPs (such as India without a VPN), MommyPix automatically routes your chosen categories to our Real-Life Photography CDN so high-res wallpapers always load instantly.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        // Quick Bulk Selection Controls
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.enableAllSubreddits() },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Select All", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { viewModel.resetSubredditsToDefault() },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Recommended", fontSize = 11.sp)
+                            }
+                        }
+
+                        // Curated Categories with Collapsible Accordions
+                        SubredditPacks.CATEGORIES.forEach { category ->
+                            var isExpanded by remember { mutableStateOf(false) }
+                            val enabledCount = category.subreddits.count { state.userPreferences.enabledSubreddits.contains(it) }
+
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { isExpanded = !isExpanded },
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(category.emoji, fontSize = 16.sp)
+                                            Text(
+                                                text = category.title,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+                                            )
+                                        }
+
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (enabledCount > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                                        ) {
+                                            Text(
+                                                text = "$enabledCount/${category.subreddits.size}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (enabledCount > 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    if (isExpanded) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            category.subreddits.forEach { sub ->
+                                                val isChecked = state.userPreferences.enabledSubreddits.contains(sub)
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (isChecked) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                                    modifier = Modifier.clickable {
+                                                        viewModel.toggleSubreddit(sub, !isChecked)
+                                                    }
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "r/$sub",
+                                                            fontSize = 12.sp,
+                                                            fontWeight = if (isChecked) FontWeight.Bold else FontWeight.Normal,
+                                                            color = if (isChecked) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Custom Subreddit Addition
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Custom Subreddits",
+                                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = state.customSubredditInput,
+                                    onValueChange = { viewModel.onCustomSubredditInputChanged(it) },
+                                    label = { Text("Add Subreddit (e.g. cosplay)") },
+                                    prefix = { Text("r/") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Button(
+                                    onClick = { viewModel.addCustomSubreddit() },
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Text("Add")
+                                }
+                            }
+
+                            if (state.userPreferences.customSubreddits.isNotEmpty()) {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    state.userPreferences.customSubreddits.forEach { sub ->
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.secondaryContainer
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(start = 8.dp, end = 4.dp, top = 2.dp, bottom = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = "r/$sub",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                                IconButton(
+                                                    onClick = { viewModel.removeCustomSubreddit(sub) },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Remove",
+                                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -814,6 +1083,85 @@ fun SettingsScreen(
                                                 fontWeight = FontWeight.SemiBold,
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                                 color = if (state.customIntervalMinutesInput == mins.toString()) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (state.userPreferences.autoWallpaperInterval == UpdateInterval.RANDOM) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "Random Interval Range (Minutes)",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "MommyPix will randomly roll a new wait time between Min and Max minutes after every automatic wallpaper change.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = state.randomMinMinutesInput,
+                                        onValueChange = { viewModel.onRandomMinMinutesChanged(it) },
+                                        label = { Text("Min Minutes") },
+                                        leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.weight(1f)
+                                    )
+
+                                    OutlinedTextField(
+                                        value = state.randomMaxMinutesInput,
+                                        onValueChange = { viewModel.onRandomMaxMinutesChanged(it) },
+                                        label = { Text("Max Minutes") },
+                                        leadingIcon = { Icon(Icons.Default.Timer, contentDescription = null) },
+                                        singleLine = true,
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                Text(
+                                    text = "Quick Presets:",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    listOf(
+                                        (1L to 5L) to "1 - 5m (Fast)",
+                                        (5L to 30L) to "5 - 30m",
+                                        (15L to 60L) to "15 - 60m",
+                                        (30L to 120L) to "30m - 2h"
+                                    ).forEach { (range, label) ->
+                                        val isSelected = state.userPreferences.randomMinMinutes == range.first &&
+                                                state.userPreferences.randomMaxMinutes == range.second
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                            modifier = Modifier
+                                                .clickable {
+                                                    viewModel.onRandomMinMinutesChanged(range.first.toString())
+                                                    viewModel.onRandomMaxMinutesChanged(range.second.toString())
+                                                }
+                                                .padding(vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                                             )
                                         }
                                     }

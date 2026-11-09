@@ -44,21 +44,17 @@ class ImageDownloader(private val context: Context) {
 
             // Determine file extension
             val cleanUrl = url.substringBefore("?")
-            val extension = cleanUrl.substringAfterLast('.', "jpg").lowercase()
-            if (extension !in listOf("jpg", "jpeg", "png", "webp")) {
-                return@withContext Result.failure(
-                    IllegalArgumentException("Unsupported image format: .$extension")
-                )
-            }
+            val rawExt = cleanUrl.substringAfterLast('.', "jpg").lowercase()
+            val extension = if (rawExt in listOf("jpg", "jpeg", "png", "webp")) rawExt else "jpg"
 
             val outputFile = File(wallpapersDir, "mommypix_${postId}_${System.currentTimeMillis()}.$extension")
 
             val referer = when {
                 url.contains("rule34") -> "https://rule34.xxx/"
-                url.contains("gelbooru") -> "https://gelbooru.com/"
-                url.contains("danbooru") -> "https://danbooru.donmai.us/"
                 url.contains("pornpics") -> "https://www.pornpics.com/"
-                else -> "https://safebooru.org/"
+                url.contains("yande.re") -> "https://yande.re/"
+                url.contains("reddit") || url.contains("redd.it") -> "https://www.reddit.com/"
+                else -> "https://rule34.xxx/"
             }
 
             val request = Request.Builder()
