@@ -46,6 +46,12 @@ object SubredditPacks {
             subreddits = listOf("feet", "FootFetish", "RealGirls")
         ),
         SubredditCategory(
+            id = "creators",
+            title = "Cosplay & Creators",
+            emoji = "✨",
+            subreddits = listOf("alicedelish", "BelleDelphine", "BelleDelphinePatreon", "cosplay")
+        ),
+        SubredditCategory(
             id = "amateur",
             title = "Amateur & Real-Life Photography",
             emoji = "📸",
@@ -59,12 +65,16 @@ object SubredditPacks {
     val ALL_SUBREDDITS: List<String> = CATEGORIES.flatMap { it.subreddits }.distinct()
 
     val DEFAULT_ENABLED_SUBREDDITS: Set<String> = setOf(
-        "Bondage", "bdsm", "Femdom", "Sissy", "Feminization", "gonewild", "Amateur", "feet"
+        "Bondage", "bdsm", "Femdom", "Sissy", "Feminization", "gonewild", "Amateur", "feet",
+        "alicedelish", "BelleDelphine"
     )
 
     fun mapSubredditToSearchTerm(subreddit: String): String {
         val clean = subreddit.trim().removePrefix("r/").removePrefix("/").lowercase()
         return when (clean) {
+            "alicedelish" -> "alice-delish"
+            "belledelphine", "belledelphinepatreon" -> "belle-delphine"
+            "cosplay" -> "cosplay"
             "bondage", "bdsm", "bdsmgw" -> "bondage"
             "femdom", "femdomhumiliation", "femdomcommunity", "sissyfemdom" -> "femdom"
             "sissychastity", "chastity", "sissylock", "locktober", "chastityhumiliations" -> "chastity"

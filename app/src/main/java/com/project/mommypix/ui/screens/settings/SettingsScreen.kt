@@ -116,6 +116,7 @@ fun SettingsScreen(
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.checkBatteryOptimizationStatus()
+                viewModel.checkExactAlarmStatus()
                 viewModel.checkDeviceAdminStatus()
             }
         }
@@ -1290,6 +1291,37 @@ fun SettingsScreen(
                             Text("Disable Battery Optimization (Prevent OS Killing)")
                         }
                     }
+
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && !state.canScheduleExactAlarms) {
+                        Button(
+                            onClick = {
+                                try {
+                                    val exactIntent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(exactIntent)
+                                } catch (e: Exception) {
+                                    val appInfo = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                    context.startActivity(appInfo)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                        ) {
+                            Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Allow Exact Alarms (Required on Samsung / Android 14+)")
+                        }
+                    }
+
+                    Text(
+                        text = "Samsung One UI tip: If background wallpaper updates pause after swiping the app away, go to Settings > Battery > Background usage limits > Never sleeping apps and add MommyPix. For Device Admin, temporarily toggle off 'Auto Blocker' in Settings > Security and privacy.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 

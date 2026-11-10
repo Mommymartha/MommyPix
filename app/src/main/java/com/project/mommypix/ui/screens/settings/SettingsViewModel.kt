@@ -36,6 +36,7 @@ data class SettingsUiState(
     val hasCredentials: Boolean = false,
     val isTestingConnection: Boolean = false,
     val isIgnoringBatteryOptimizations: Boolean = false,
+    val canScheduleExactAlarms: Boolean = true,
     val isDeviceAdminActive: Boolean = false,
     val userPreferences: UserPreferences = UserPreferences(),
     val storageUsageBytes: Long = 0L,
@@ -62,6 +63,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         observePreferences()
         updateStorageAndCacheInfo()
         checkBatteryOptimizationStatus()
+        checkExactAlarmStatus()
         checkDeviceAdminStatus()
     }
 
@@ -87,6 +89,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         val pm = app.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val isIgnoring = pm?.isIgnoringBatteryOptimizations(app.packageName) ?: false
         _uiState.update { it.copy(isIgnoringBatteryOptimizations = isIgnoring) }
+    }
+
+    fun checkExactAlarmStatus() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val am = app.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager
+            val canSchedule = am?.canScheduleExactAlarms() ?: true
+            _uiState.update { it.copy(canScheduleExactAlarms = canSchedule) }
+        } else {
+            _uiState.update { it.copy(canScheduleExactAlarms = true) }
+        }
     }
 
     private fun loadCredentials() {
